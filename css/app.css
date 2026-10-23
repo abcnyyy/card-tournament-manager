@@ -1,0 +1,588 @@
+/* ============================================================
+   赛事编排系统 - 样式表
+   风格：纯黑白、高对比、大字号、布局紧凑专业
+   零外部依赖（无字体外链、无图标库）
+   ============================================================ */
+
+:root {
+  --c-bg: #ffffff;
+  --c-fg: #000000;
+  --c-inv-bg: #000000;
+  --c-inv-fg: #ffffff;
+  --c-line: #000000;
+  --c-line-soft: #000000;
+  --c-mute-bg: #ffffff;
+  --c-warn-bg: #000000;
+  --c-warn-fg: #ffffff;
+  --font: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --font-mono: "Consolas", "Courier New", monospace;
+  --fs-base: 16px;
+  --gap: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--c-bg);
+  color: var(--c-fg);
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ---------- 布局 ---------- */
+.app { display: flex; flex-direction: column; min-height: 100vh; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px;
+  border-bottom: 3px solid var(--c-line);
+  background: var(--c-bg);
+}
+.topbar h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: .5px; }
+.topbar .sub { font-size: 14px; font-weight: 600; }
+.topbar .right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 2px solid var(--c-line); background: var(--c-bg); position: sticky; top: 0; z-index: 50; }
+.tab {
+  appearance: none; border: 0; border-right: 1px solid var(--c-line);
+  background: var(--c-bg); color: var(--c-fg);
+  font-family: var(--font); font-size: 16px; font-weight: 700;
+  padding: 11px 20px; cursor: pointer; white-space: nowrap;
+}
+.tab:hover { background: #000; color: #fff; }
+.tab.active { background: var(--c-inv-bg); color: var(--c-inv-fg); }
+.tab[disabled] { opacity: .35; cursor: not-allowed; }
+.tab[disabled]:hover { background: var(--c-bg); color: var(--c-fg); }
+
+.main { flex: 1; padding: 14px 16px 60px; max-width: 1500px; width: 100%; margin: 0 auto; }
+
+/* ---------- 通用块 ---------- */
+.card { border: 2px solid var(--c-line); padding: 12px 14px; margin-bottom: 14px; background: var(--c-bg); }
+.card > h2, .card > h3 { margin: 0 0 10px; font-size: 18px; font-weight: 800; border-bottom: 2px solid var(--c-line); padding-bottom: 6px; }
+.card > h4 { margin: 12px 0 6px; font-size: 16px; font-weight: 800; }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fld { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.fld > label { flex: 0 0 132px; line-height: 22px; }
+.fld-ctl { flex: 1 1 200px; min-width: 160px; }
+.grid3 .fld, .grid2 .fld, .grid4 .fld { margin-bottom: 0; flex-direction: column; align-items: flex-start; gap: 4px; }
+.grid3 .fld > label, .grid2 .fld > label, .grid4 .fld > label { flex: 0 0 auto; }
+.grid3 .fld-ctl, .grid2 .fld-ctl, .grid4 .fld-ctl { flex: 0 0 auto; min-width: 0; }
+.grid4 .fld-ctl { flex: 0 0 auto; min-width: 0; }
+.row.end { justify-content: flex-end; }
+.spacer { flex: 1; }
+
+label { font-weight: 700; font-size: 15px; }
+.hint { font-size: 13px; font-weight: 600; opacity: .75; }
+.mono { font-family: var(--font-mono); }
+
+/* 淘汰赛名次表：冠军行反白 */
+tr.champ td { background: var(--c-inv-bg); color: var(--c-inv-fg); font-weight: 800; }
+tr.runner td { font-weight: 800; }
+
+/* ---------- 淘汰赛对阵图 ---------- */
+.bracket-wrap { overflow-x: auto; padding: 6px 0 10px; }
+.bracket-sec { margin-bottom: 14px; }
+.bracket-sec .sec-name {
+  font-size: 15px; font-weight: 800; margin-bottom: 6px;
+  border-left: 6px solid #000; padding-left: 8px;
+}
+.bracket-cols { display: flex; gap: 16px; align-items: stretch; min-width: max-content; }
+.bracket-col { display: flex; flex-direction: column; min-width: 160px; }
+.bracket-col .col-name {
+  font-size: 12px; font-weight: 800; text-align: center;
+  border: 2px solid #000; padding: 3px 4px; background: #eee;
+  margin-bottom: 8px; flex: 0 0 auto;
+}
+.bracket-col .col-body { display: flex; flex-direction: column; justify-content: space-around; gap: 10px; flex: 1 1 auto; }
+.bcard {
+  border: 2px solid #000; background: var(--c-bg);
+  box-shadow: 3px 3px 0 #000; font-size: 13px;
+}
+.bcard.bye { border-style: dashed; box-shadow: none; }
+.brow {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 6px; padding: 4px 7px; font-weight: 700; border-bottom: 1px solid var(--c-line);
+}
+.brow:last-child { border-bottom: none; }
+.brow.win { background: var(--c-inv-bg); color: var(--c-inv-fg); }
+.brow.lose { opacity: .7; }
+.brow b { font-family: var(--font-mono); font-size: 14px; }
+/* 对阵卡片上的场次编号与晋级路径（胜者 / 负者下一场） */
+.blab {
+  font-size: 11px; font-weight: 800; letter-spacing: .02em;
+  padding: 2px 7px; background: #fff; color: #000;
+  border-bottom: 2px solid #000; text-align: center;
+}
+.bpath {
+  border-top: 1px dashed var(--c-line); padding: 3px 7px 4px;
+  font-size: 11px; font-weight: 700; line-height: 1.45;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.bpath .pw::before { content: "▲ "; }
+.bpath .pl::before { content: "▼ "; }
+.bpath span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- 完整对阵图（网格版：每格都有选手或来源） ---------- */
+.bplan-bar {
+  font-size: 13px; font-weight: 800; border: 2px solid #000; background: #fff;
+  padding: 5px 10px; margin-bottom: 10px; display: inline-block;
+}
+.bgrow { display: grid; gap: 14px; align-items: start; padding-bottom: 6px; }
+.bcol { display: flex; flex-direction: column; min-width: 0; }
+.bcol .col-head {
+  border: 2px solid #000; background: #eee; padding: 3px 6px; margin-bottom: 8px;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+}
+.bcol .col-head b { font-size: 13px; }
+.bcol .col-head span { font-size: 11px; font-weight: 700; opacity: .75; }
+.bcol .col-body { display: flex; flex-direction: column; gap: 10px; }
+.bslot {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 5px 8px; font-weight: 800; font-size: 13px;
+  border-bottom: 1px solid var(--c-line);
+  min-height: 30px;
+}
+.bslot:last-child { border-bottom: none; }
+.bslot span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bslot b { font-family: var(--font-mono); font-size: 15px; flex: 0 0 auto; }
+.bslot.win { background: var(--c-inv-bg); color: var(--c-inv-fg); }
+.bslot.pend span { font-style: italic; font-weight: 700; opacity: .62; font-size: 12px; }
+.bslot.bye span { opacity: .5; font-style: italic; }
+.bslot .advtag { font-style: normal; font-size: 10px; margin-left: 3px; opacity: .85; }
+.bcard.done { border-width: 3px; }
+/* 退赛 / 取消资格：名字划线 + 方框标签，绝不再当成正常参赛者 */
+.bslot.dropped span { text-decoration: line-through; opacity: .72; }
+.bslot .dropflag {
+  font-style: normal; font-size: 10px; font-weight: 800; margin-left: 4px;
+  border: 1px solid currentColor; padding: 0 3px; text-decoration: none; display: inline-block;
+}
+.bcard.voided { opacity: .45; }
+.blab .wotag {
+  font-style: normal; font-weight: 800; font-size: 10px; margin-left: 6px;
+  border: 1px solid currentColor; padding: 0 4px;
+}
+.blab .elevtag {
+  font-style: normal; font-weight: 800; font-size: 10px; margin-left: 6px;
+  background: var(--c-inv-bg); color: var(--c-inv-fg); padding: 0 4px;
+}
+
+/* ---------- 合并对阵图（多个淘汰赛阶段接成一条路径） ---------- */
+.bracket-wrap.merged { overflow-x: auto; }
+.mbar {
+  font-size: 13px; font-weight: 800; border: 2px solid #000; background: #fff;
+  padding: 5px 10px; margin-bottom: 10px; display: inline-block;
+}
+.mflow { display: flex; align-items: stretch; gap: 0; width: max-content; min-width: max-content; }
+.mstage { flex: 0 0 auto; border: 3px solid #000; background: #fff; padding: 8px 10px 6px; }
+.mstage .mhead {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  border-bottom: 2px solid #000; padding-bottom: 6px;
+}
+.mstage .mno {
+  flex: 0 0 auto; width: 26px; height: 26px; line-height: 26px; text-align: center;
+  background: #000; color: #fff; font-weight: 800; font-family: var(--font-mono);
+}
+.mstage .mtt { display: flex; flex-direction: column; min-width: 0; }
+.mstage .mtt b { font-size: 15px; font-weight: 800; }
+.mstage .mtt i { font-style: normal; font-size: 11px; font-weight: 700; opacity: .7; }
+.mstage .mfoot {
+  margin-top: 6px; padding-top: 5px; border-top: 2px dashed #000;
+  font-size: 12px; font-weight: 800;
+}
+.mstage .mfoot.mchamp {
+  border-top: 3px solid #000; background: #000; color: #fff;
+  padding: 4px 8px; font-size: 13px;
+}
+.mbar .mchamp {
+  background: #000; color: #fff; padding: 1px 8px; margin-left: 4px;
+}
+.mlink {
+  flex: 0 0 auto; width: 132px; align-self: center;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 0 8px; text-align: center;
+}
+.mlink .mtop {
+  font-size: 11px; font-weight: 800; border: 2px solid #000; background: #fff;
+  padding: 2px 6px; white-space: nowrap;
+}
+.mlink .mnames {
+  font-size: 12px; font-weight: 800; line-height: 1.35;
+  max-height: 96px; overflow: hidden; word-break: break-all;
+}
+.mlink .marrow { font-size: 18px; font-weight: 800; line-height: 1; }
+
+/* ---------- 阶段 / 轮次切换条（对阵页随时回看之前轮次） ---------- */
+.navbar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  border: 2px solid #000; background: var(--c-bg); padding: 6px 8px; margin-bottom: 10px;
+}
+.navbar .nlabel {
+  font-size: 12px; font-weight: 800; letter-spacing: .06em;
+  border-right: 2px solid #000; padding-right: 8px; margin-right: 2px;
+}
+.rchip {
+  appearance: none; font-family: var(--font); cursor: pointer;
+  border: 2px solid #000; background: #fff; color: #000;
+  padding: 3px 9px; font-size: 13px; font-weight: 800;
+  display: inline-flex; align-items: baseline; gap: 5px; min-height: 32px;
+}
+.rchip i { font-style: normal; font-size: 10px; font-weight: 700; opacity: .65; }
+.rchip.on { background: #000; color: #fff; }
+.rchip.on i { opacity: .85; }
+.rchip.off { opacity: .4; }
+.rchip[disabled] { cursor: default; }
+
+/* ---------- 手动编排（点选式） ---------- */
+.arrcard .arr-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.arr-sec-title {
+  font-size: 14px; font-weight: 800; margin: 14px 0 6px;
+  border-left: 6px solid #000; padding-left: 8px;
+}
+.chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.chip {
+  appearance: none; font-family: var(--font); text-align: left;
+  border: 2px solid #000; background: #fff; color: #000;
+  padding: 8px 10px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 1px; min-height: 46px;
+}
+.chip .chip-name { font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip .chip-sub { font-size: 11px; font-weight: 700; opacity: .7; font-family: var(--font-mono); }
+.chip.used { opacity: .4; }
+.chip.used .chip-name { text-decoration: line-through; }
+.chip.sel { background: #000; color: #fff; }
+.chip.sel .chip-sub { opacity: .85; }
+.arr-pairs { display: flex; flex-direction: column; gap: 6px; }
+.arr-pair {
+  display: flex; align-items: center; gap: 8px;
+  border: 2px solid #000; padding: 6px 10px; background: var(--c-bg);
+  flex-wrap: wrap;
+}
+.arr-pair .tno {
+  font-family: var(--font-mono); font-weight: 800; font-size: 12px;
+  border: 1px solid #000; padding: 0 5px;
+}
+.arr-pair .pp { font-weight: 800; font-size: 15px; }
+.arr-pair .vs { font-size: 12px; font-weight: 800; opacity: .6; }
+.arr-detail { margin-top: 14px; }
+.arr-detail summary { cursor: pointer; font-weight: 800; font-size: 14px; padding: 4px 0; }
+
+/* ---------- 页内对话框（替代原生 confirm / prompt） ---------- */
+#modalWrap { display: none; position: fixed; inset: 0; z-index: 10000; }
+#modalWrap .mask { position: absolute; inset: 0; background: rgba(0,0,0,.45); }
+#modalWrap .modal {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: var(--c-bg); color: var(--c-fg);
+  border: 4px solid #000; box-shadow: 8px 8px 0 #000;
+  padding: 20px 22px 16px; width: min(460px, 92vw);
+}
+#modalWrap .modal-title { font-size: 19px; font-weight: 800; margin-bottom: 10px; }
+#modalWrap .modal-text { font-size: 14px; font-weight: 600; line-height: 1.6; margin-bottom: 12px; }
+#modalWrap .modal-input { width: 100%; font-size: 16px; font-weight: 700; min-height: 40px; }
+#modalWrap .modal-foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+#modalWrap .modal-foot .btn { min-width: 96px; }
+
+/* ---------- 表单控件 ---------- */
+input[type="text"], input[type="number"], select, textarea {
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--c-fg);
+  background: var(--c-bg);
+  border: 2px solid var(--c-line);
+  border-radius: 0;
+  padding: 6px 8px;
+  min-height: 34px;
+  outline: none;
+}
+input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 2px #000; }
+input[type="number"] { width: 90px; }
+textarea { width: 100%; min-height: 150px; resize: vertical; font-family: var(--font-mono); line-height: 1.6; }
+input[disabled], select[disabled] { opacity: .4; }
+input.inline-num { width: 64px; text-align: center; font-size: 17px; padding: 4px; }
+
+/* ---------- 按钮 ---------- */
+.btn {
+  appearance: none;
+  font-family: var(--font);
+  font-size: 15px; font-weight: 700;
+  padding: 7px 14px;
+  border: 2px solid var(--c-line);
+  background: var(--c-bg); color: var(--c-fg);
+  cursor: pointer; border-radius: 0;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--c-inv-bg); color: var(--c-inv-fg); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--c-inv-bg); color: var(--c-inv-fg); }
+.btn.primary:hover { background: var(--c-bg); color: var(--c-fg); }
+.btn.lg { font-size: 17px; padding: 10px 20px; }
+.btn.sm { font-size: 13px; padding: 4px 9px; font-weight: 700; }
+.btn.danger { border-width: 3px; }
+.btn[disabled] { opacity: .3; cursor: not-allowed; }
+.btn[disabled]:hover { background: var(--c-bg); color: var(--c-fg); }
+
+/* ---------- 表格 ---------- */
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { border: 1px solid var(--c-line); padding: 5px 8px; text-align: left; vertical-align: middle; }
+th { background: var(--c-inv-bg); color: var(--c-inv-fg); font-weight: 800; font-size: 14px; white-space: nowrap; }
+td.num, th.num { text-align: center; font-family: var(--font-mono); font-weight: 700; }
+tbody tr:nth-child(even) td { background: #fff; }
+tbody tr:hover td { background: #000; color: #fff; }
+tbody tr:hover td .btn { border-color: #fff; }
+tbody tr:hover td .btn:hover { background: #fff; color: #000; }
+table.compact th, table.compact td { padding: 3px 6px; font-size: 14px; }
+
+/* 名次徽标 */
+.rank-1, .rank-2, .rank-3 { font-weight: 800; }
+.rank-1 { border: 3px solid #000; }
+
+/* 提前晋级 / 提前淘汰的行：左侧加粗色条，黑白主题下用实线/虚线区分 */
+tr.row-clinch td:first-child { border-left: 6px solid #000; }
+tr.row-clinch td { font-weight: 800; }
+tr.row-elim td:first-child { border-left: 6px dashed #000; }
+tr.row-elim td { opacity: .62; }
+
+/* 晋级标记 */
+.tag {
+  display: inline-block; font-size: 12px; font-weight: 800;
+  padding: 1px 6px; border: 2px solid #000; margin-left: 4px;
+}
+.tag.inv { background: #000; color: #fff; }
+.tag.bye { border-style: dashed; }
+
+/* 状态条 */
+.statusbar {
+  display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+  border: 2px solid var(--c-line); padding: 8px 12px; margin-bottom: 12px; font-size: 15px; font-weight: 700;
+}
+.statusbar .k { font-weight: 800; }
+.statusbar .v { font-family: var(--font-mono); }
+
+/* ---------- 对阵卡片 ---------- */
+.matchlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 10px; }
+.match {
+  border: 2px solid var(--c-line);
+  background: var(--c-bg);
+}
+.match.done { border-width: 4px; }
+.match.pending { }
+.match-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 5px 10px; border-bottom: 1px solid var(--c-line);
+  font-size: 13px; font-weight: 800; background: var(--c-inv-bg); color: var(--c-inv-fg);
+}
+.match-body { display: flex; align-items: stretch; }
+.side { flex: 1; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.side + .side { border-left: 2px solid var(--c-line); }
+.side.win { background: #000; color: #fff; }
+.side.win .btn { border-color: #fff; background: #000; color: #fff; }
+.side.win .btn:hover { background: #fff; color: #000; }
+.side.win input { color: #fff; background: #000; border-color: #fff; }
+.pname { font-size: 17px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.psub { font-size: 12px; font-weight: 700; opacity: .85; }
+/* 对阵卡片上的实时战绩：胜 / 负 / 平 · 积分 · 名次 */
+.prec { font-size: 13px; font-weight: 800; line-height: 1.4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.prec b { font-family: var(--font-mono); font-size: 14px; }
+.prec .seg { border: 1px solid currentColor; padding: 0 5px; white-space: nowrap; }
+.prec .seg.pts { border-width: 3px; }
+.prec .rk { opacity: .85; }
+/* 反白一侧（胜方）上的标记需要反色，否则黑底黑框看不见 */
+.side.win .prec .tag { border-color: #fff; }
+.side.win .prec .tag.inv { background: #fff; color: #000; border-color: #fff; }
+.bigscore { font-family: var(--font-mono); font-size: 40px; font-weight: 800; line-height: 1; text-align: center; min-width: 84px; }
+.games { display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; font-weight: 700; }
+.gamechip { border: 1px solid currentColor; padding: 0 5px; font-family: var(--font-mono); }
+.match-foot { border-top: 1px solid var(--c-line); padding: 5px 10px; }
+/* 对阵卡片上的晋级路径：胜者 / 负者下一场 */
+.matchpath {
+  border-top: 1px dashed var(--c-line); padding: 4px 10px;
+  font-size: 12px; font-weight: 700; display: flex; gap: 16px; flex-wrap: wrap;
+}
+.matchpath span { white-space: nowrap; }
+.quickrow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; padding: 3px 0; }
+.quickrow + .quickrow { border-top: 1px dashed #bbb; }
+/* 计时器一行：倒计时 + 开表按钮 */
+.tmrow {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  padding: 3px 0 5px; border-bottom: 1px dashed #bbb; margin-bottom: 3px;
+}
+.tmclock {
+  font-family: var(--font-mono); font-size: 20px; font-weight: 800; line-height: 1;
+  border: 3px solid var(--c-line); padding: 3px 8px; min-width: 78px; text-align: center;
+}
+.tmclock.off { border-style: dashed; opacity: .55; font-size: 16px; min-width: 62px; }
+.tmclock.run { background: var(--c-inv-bg); color: var(--c-inv-fg); }
+/* 到点未结算：黑白主题下用反白闪烁提示，不用彩色 */
+.tmclock.expired { border-style: double; border-width: 5px; animation: tmblink .9s steps(2, start) infinite; }
+@keyframes tmblink { 50% { background: var(--c-inv-bg); color: var(--c-inv-fg); } }
+.qlabel { font-size: 13px; font-weight: 800; border: 2px solid var(--c-line); padding: 2px 7px; }
+.qcolon { font-weight: 800; font-size: 18px; line-height: 1; }
+.center-col { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 8px; border-left: 2px solid var(--c-line); border-right: 2px solid var(--c-line); }
+.center-col + .side { border-left: 0; }
+
+/* ---------- 阶段流水线 ---------- */
+.pipeline { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; margin-bottom: 12px; }
+.pipe-item {
+  border: 2px solid var(--c-line); padding: 6px 10px; min-width: 130px;
+  font-size: 13px; font-weight: 700;
+}
+.pipe-item.current { background: var(--c-inv-bg); color: var(--c-inv-fg); border-width: 3px; }
+.pipe-item.done { border-style: double; border-width: 4px; }
+.pipe-item .t { font-size: 15px; font-weight: 800; display: block; }
+
+/* ---------- 提示条 ---------- */
+.notice {
+  border: 2px solid var(--c-line); padding: 8px 12px; margin-bottom: 12px;
+  font-size: 14px; font-weight: 700;
+}
+.notice.inv { background: var(--c-inv-bg); color: var(--c-inv-fg); }
+.notice.empty { border-style: dashed; }
+
+/* ---------- 打印区 ---------- */
+#printArea { display: none; }
+body.printing .app { display: none !important; }
+body.printing #printArea { display: block !important; padding: 8mm; }
+#printArea h2 { page-break-after: avoid; }
+#printArea table { width: 100%; margin-bottom: 6mm; }
+
+@media print {
+  .topbar .right, .tabs, .noprint, .btn { display: none !important; }
+  body { font-size: 12pt; }
+  .card { border: 1px solid #000; page-break-inside: avoid; }
+  table { font-size: 11pt; }
+  th { background: #000 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .main { padding: 0; max-width: none; }
+  .match { page-break-inside: avoid; }
+}
+
+/* ============================================================
+   移动端（安卓 / 手机浏览器）适配
+   —— 底部标签栏、44px 触摸目标、表格横向滚动、表单竖排
+   ============================================================ */
+@media (max-width: 820px) {
+
+  html, body { overflow-x: hidden; }
+
+  /* ---- 顶栏：标题占一行，功能按钮四等分 ---- */
+  .topbar {
+    padding: 8px 10px 6px; gap: 6px;
+    position: sticky; top: 0; z-index: 80;
+    box-shadow: 0 3px 0 rgba(0, 0, 0, .12);
+  }
+  .topbar h1 { font-size: 18px; letter-spacing: 0; }
+  .topbar .sub { font-size: 12px; line-height: 1.35; }
+  .topbar .right {
+    width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px;
+  }
+  .topbar .right .btn {
+    padding: 9px 2px; font-size: 12px; min-height: 40px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ---- 视图标签：固定到底部，六个等宽 ---- */
+  .tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; top: auto;
+    display: grid; grid-template-columns: repeat(6, 1fr);
+    border-top: 2px solid var(--c-line); border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    z-index: 300;
+  }
+  .tab {
+    padding: 9px 1px 10px; font-size: 11px; line-height: 1.25;
+    border-right: 1px solid var(--c-line); border-bottom: 0;
+    text-align: center; white-space: normal; min-height: 52px;
+  }
+  .tab:last-child { border-right: 0; }
+  .tab.active { border-top: 4px solid var(--c-line); }
+
+  .main { padding: 10px 10px 100px; }
+
+  /* ---- 按钮：手指能点到 ---- */
+  .btn { min-height: 42px; padding: 9px 12px; font-size: 15px; }
+  .btn.sm { min-height: 36px; padding: 6px 10px; font-size: 13px; }
+  .btn.lg { min-height: 48px; font-size: 16px; }
+  .row > .btn.lg { flex: 1 1 46%; }
+  .row > .btn { flex: 1 1 auto; }
+
+  /* ---- 表单：标签在上，控件占满整行 ---- */
+  .fld { flex-direction: column; align-items: stretch; gap: 4px; margin-bottom: 10px; }
+  .fld > label { flex: 0 0 auto; font-size: 14px; }
+  .fld-ctl { flex: 1 1 auto; min-width: 0; width: 100%; }
+  .grid2, .grid3, .grid4 { grid-template-columns: 1fr; }
+  .grid3 .fld, .grid2 .fld, .grid4 .fld { align-items: stretch; }
+
+  /* 输入控件放大，避免安卓点击时自动缩放 */
+  input[type="text"], input[type="number"], input[type="search"], select, textarea {
+    font-size: 16px; min-height: 42px; padding: 6px 8px; max-width: 100%;
+  }
+  input[type="checkbox"] { width: 22px; height: 22px; }
+  .card { padding: 10px 10px 12px; margin-bottom: 10px; }
+  .card > h2, .card > h3 { font-size: 16px; }
+  .hint { font-size: 12.5px; line-height: 1.5; }
+
+  /* ---- 表格：整块横向滑动，列不被压扁 ---- */
+  .card > table, .card > table.compact, .card > div > table {
+    display: block; width: 100%;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+  table { font-size: 14px; }
+  th, td { padding: 6px 8px; }
+  table.compact th, table.compact td { padding: 5px 7px; }
+
+  /* ---- 对阵卡片：一列铺满，比两列好点 ---- */
+  .matchlist { grid-template-columns: 1fr; gap: 8px; }
+  .match-head { font-size: 12px; padding: 5px 8px; flex-wrap: wrap; gap: 4px; }
+  .side { padding: 7px 8px; gap: 5px; }
+  .pname { font-size: 15px; }
+  .bigscore { font-size: 30px; min-width: 56px; }
+  .prec { font-size: 12px; gap: 3px 5px; }
+  .prec b { font-size: 13px; }
+  .quickrow { gap: 5px; justify-content: flex-start; }
+  .qlabel { font-size: 12px; padding: 2px 6px; }
+  .center-col { padding: 0 4px; }
+
+  /* ---- 对阵图 / 阶段条：横滑，不折行 ---- */
+  .bracket-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .bracket-cols { min-width: max-content; }
+  .pipeline { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+  .pipe-item { min-width: 140px; flex: 0 0 auto; }
+  .statusbar { flex-direction: column; align-items: flex-start; gap: 4px; }
+
+  /* ---- 合并对阵图：手机上整条横滑 ---- */
+  .bracket-wrap.merged { -webkit-overflow-scrolling: touch; }
+  .mflow { min-width: max-content; }
+  .mstage { padding: 7px 8px 5px; }
+  .mlink { width: 104px; padding: 0 5px; }
+  .mstage .mfoot.mchamp { font-size: 12px; padding: 3px 6px; }
+
+  /* ---- 轮次切换条：一行放不下就横滑，点着不误触 ---- */
+  .navbar { gap: 5px; padding: 6px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .navbar .nlabel { position: sticky; left: 0; background: var(--c-bg); z-index: 1; }
+  .rchip { min-height: 40px; padding: 6px 10px; font-size: 14px; flex: 0 0 auto; }
+  .navbar .btn.sm { flex: 0 0 auto; }
+
+  /* 编辑面板里的下拉按钮行贴底 */
+  .notice { font-size: 13px; padding: 8px 10px; }
+}
+
+/* ---- 触摸设备：去掉「点一下留黑底」的 hover 反白 ---- */
+@media (hover: none) {
+  .tab:hover { background: var(--c-bg); color: var(--c-fg); }
+  .tab.active:hover { background: var(--c-inv-bg); color: var(--c-inv-fg); }
+  .btn:hover { background: var(--c-bg); color: var(--c-fg); }
+  .btn.primary:hover { background: var(--c-inv-bg); color: var(--c-inv-fg); }
+  .side.win .btn:hover { background: #000; color: #fff; }
+  tbody tr:hover td { background: var(--c-bg); color: var(--c-fg); }
+  tr.champ:hover td { background: var(--c-inv-bg); color: var(--c-inv-fg); }
+  tbody tr:hover td .btn { border-color: var(--c-line); }
+}
