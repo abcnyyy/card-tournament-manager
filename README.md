@@ -15,6 +15,19 @@
 - **导出**：HTML 一览导出（另存为 / 打印 PDF），支持原生保存对话框
 - **回退**：任何一步操作都可撤销
 
+## 下载（v1.11.2）
+
+前往 **[Releases](https://github.com/abcnyyy/card-tournament-manager/releases/latest)** 页面下载，或直接点下面的链接：
+
+| 平台 | 文件 | 大小 | 说明 |
+|---|---|---|---|
+| Windows 绿色版 | [card-tournament-manager-1.11.2-portable.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v1.11.2/card-tournament-manager-1.11.2-portable.exe) | 77 MB | 单个 exe，双击即用，无需安装，可放 U 盘 |
+| Windows 安装版 | [card-tournament-manager-1.11.2-setup.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v1.11.2/card-tournament-manager-1.11.2-setup.exe) | 77 MB | 安装到本机，生成开始菜单 / 桌面快捷方式 |
+| Android | [card-tournament-manager-1.11.2.apk](https://github.com/abcnyyy/card-tournament-manager/releases/download/v1.11.2/card-tournament-manager-1.11.2.apk) | 3.8 MB | 手机 / 平板安装，界面自适应竖屏 |
+
+> Windows 版首次运行若被 SmartScreen 拦下，点「更多信息 → 仍要运行」即可（未签名应用都这样）。
+> 完整操作说明见仓库内的 [使用说明.md](使用说明.md)。
+
 ## 目录结构
 
 ```
