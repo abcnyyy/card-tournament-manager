@@ -1,0 +1,58 @@
+{
+  "name": "tournament-scheduler",
+  "version": "1.11.2",
+  "description": "卡牌赛事编排 —— 瑞士轮 / 单败 / 双败 / 循环赛 / 多阶段小组赛",
+  "main": "electron/main.js",
+  "author": "",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:exe": "electron-builder --win --x64",
+    "dist:portable": "electron-builder --win --x64 --config.win.target=portable",
+    "cap:add": "cap add android",
+    "cap:sync": "cap sync android",
+    "apk:debug": "cd android && gradlew.bat assembleDebug",
+    "apk:release": "cd android && gradlew.bat assembleRelease"
+  },
+  "devDependencies": {
+    "electron": "^30.5.1",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
+  },
+  "optionalDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  },
+  "build": {
+    "appId": "com.local.tournament",
+    "productName": "卡牌赛事编排",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "app/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  }
+}

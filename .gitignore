@@ -1,0 +1,47 @@
+# 依赖
+node_modules/
+
+# 打包产物（exe / apk / 安装包 / 解包目录）
+dist/
+release/
+build/Output/
+*.exe
+*.apk
+*.msi
+*.zip
+
+# 本地 SDK（体积巨大，不入库）
+sdk/
+.gradle/
+local.properties
+
+# Capacitor 生成的拷贝与缓存
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/build/
+android/build/
+android/capacitor-cordova-android-plugins/
+android/.gradle/
+
+# 测试过程产物（截图 / 解包 / 日志）
+tools/smoke_out/
+tools/_asar*/
+tools/_asar_run/
+tools/_flow.log
+gradle_log.txt
+*.log
+
+# 一次性调试探针 / 诊断脚本（非项目正式文件）
+tools/probe_*.js
+tools/diag_*.js
+tools/_dbg*.js
+tools/ui_test_log.txt
+
+# 工作记录与本地会话数据
+.workbuddy/
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini

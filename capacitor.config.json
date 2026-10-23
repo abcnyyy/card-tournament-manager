@@ -1,0 +1,13 @@
+{
+  "appId": "com.local.tournament",
+  "appName": "卡牌赛事编排",
+  "webDir": "app",
+  "loggingEnabled": false,
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
