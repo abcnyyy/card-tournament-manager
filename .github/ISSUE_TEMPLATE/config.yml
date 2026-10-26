@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 赛制 / 规则咨询
+    url: https://github.com/abcnyyy/card-tournament-manager/discussions
+    about: 不确定某个赛制怎么用、规则怎么设，来 Discussions 聊
+  - name: 📖 使用说明
+    url: https://github.com/abcnyyy/card-tournament-manager/blob/main/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md
+    about: 先看文档，很多操作都有说明

@@ -189,7 +189,10 @@ const CHECK_BY_LABEL = `function tick(labelRe){
   ok('按当前比分歧胜（A 1:0）', settled.winner === 'A', settled.winner);
   ok('标记 endReason = manual', settled.reason === 'manual', settled.reason);
   ok('卡片状态写「未打完」', /未打完/.test(settled.txt), (settled.txt.match(/第 1 桌[^\n]*/) || [''])[0]);
-  ok('出现「撤销未打完」按钮', /撤销未打完/.test(settled.txt), true);
+  // v1.14.0 起录入区默认收起，「撤销未打完」按钮在 DOM 里但不可见，改用 DOM 查询断言
+  const undoBtnTxt = await ev(`(function(){var b=document.querySelector('[data-act="tmUndoFinish"]');
+    return b?b.textContent.trim():null})()`);
+  ok('出现「撤销未打完」按钮', /撤销未打完/.test(undoBtnTxt || ''), undoBtnTxt);
   await shot('v20_match_unfinished.png');
 
   /* 撤销 */
@@ -275,9 +278,13 @@ const CHECK_BY_LABEL = `function tick(labelRe){
   await view('matches');
   await conn.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await sleep(700);
+  // v1.14.0：计时器在长行卡片的明细区里，默认收起 —— 先点开第一张卡再量尺寸
+  await ev(`(function(){var b=document.querySelector('[data-act="toggleMore"]');if(b)b.click();return 1})()`);
+  await sleep(500);
   const mob = await ev(`(function(){
-    var row=document.querySelector('.tmrow');
+    var row=document.querySelector('.mrow.open .tmrow') || document.querySelector('.tmrow');
     return {
+      opened: !!document.querySelector('.mrow.open'),
       overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       rowW: row?Math.round(row.getBoundingClientRect().width):0,
       clockW: row?Math.round(row.querySelector('.tmclock').getBoundingClientRect().width):0,

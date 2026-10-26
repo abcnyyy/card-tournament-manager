@@ -290,24 +290,30 @@ const FIND_SEL = `function findSel(re){
   await sleep(700);
   const mobile = await ev(`(function(){
     var tabs=document.querySelector('.tabs');
-    var tr=tabs.getBoundingClientRect();
+    var side=document.querySelector('.sidebar');
+    var tab=document.querySelector('.tab');
     var btn=document.querySelector('.btn');
-    var card=document.querySelector('.card');
     var cs=getComputedStyle(tabs);
+    var tr=tabs.getBoundingClientRect();
     return {
-      tabPos: cs.position,
-      tabBottom: Math.round(tr.bottom),
+      tabPos: getComputedStyle(side).position,
+      tabTop: Math.round(side.getBoundingClientRect().top),
       winH: window.innerHeight,
+      tabH: tab?Math.round(tab.getBoundingClientRect().height):0,
       btnH: btn?Math.round(btn.getBoundingClientRect().height):0,
-      tabsDisplay: cs.display,
+      tabsWrap: cs.flexWrap,
+      tabsOverflow: cs.overflowX,
+      tabsScrollable: tabs.scrollWidth > tabs.clientWidth + 1,
+      tabCount: document.querySelectorAll('.tab').length,
       overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth
     };
   })()`);
   console.log('    移动端：', JSON.stringify(mobile));
-  ok('标签栏改成底部固定', mobile.tabPos === 'fixed', mobile.tabPos);
-  ok('标签栏贴住屏幕底部', Math.abs(mobile.tabBottom - mobile.winH) <= 2, [mobile.tabBottom, mobile.winH]);
-  ok('标签栏六等分（grid）', mobile.tabsDisplay === 'grid', mobile.tabsDisplay);
-  ok('按钮高度 ≥ 40px（好点）', mobile.btnH >= 40, mobile.btnH);
+  ok('导航区吸顶（sticky）', mobile.tabPos === 'sticky', mobile.tabPos);
+  ok('导航在视口顶部', mobile.tabTop <= 2, mobile.tabTop);
+  ok('标签一行不换行 + 可横滑', mobile.tabsWrap === 'nowrap' && mobile.tabsOverflow === 'auto', [mobile.tabsWrap, mobile.tabsOverflow]);
+  ok('标签是胶囊按钮（≥28px 高）', mobile.tabH >= 28, mobile.tabH);
+  ok('按钮高度 ≥ 34px（好点）', mobile.btnH >= 34, mobile.btnH);
   ok('页面没有横向溢出', mobile.overflowX <= 0, mobile.overflowX);
   await shot('v19_mobile_export.png');
 

@@ -18,6 +18,15 @@
   //   阶段：只允许回看已经结束的旧阶段（只读）
   var viewRound = -1;
   var viewStageIdx = -1;
+  // 对阵卡「明细」展开状态：matchId -> true（逐局明细 / 计时器 / 晋级路径）
+  var openMore = {};
+  // 团体赛 nvn「批量录入」面板展开状态：matchId -> true
+  // 赛季：正在查看的赛季 id（'' = 赛季列表），规则编辑是否展开
+  var curSeasonId = '';
+  var seasonOpen = false;
+  // 赛事积分榜：名次分档显示多少行（纯 UI 状态）、正在编辑哪个阶段的独立规则
+  var ptsRows = 0;
+  var ptsStageOpen = -1;
   var exSel = { stage: 0, round: -1, group: -1 };
   var pendingFileAction = null;
 
@@ -235,13 +244,23 @@
     );
 
     var rows = '';
+    var seasons = S.loadSeasons();
     idx.forEach(function (m) {
       var stTxt = m.status === 'finished' ? '已结束' : (m.status === 'running' ? '进行中' : '未开始');
+      var full = S.get(m.id);
+      var sid = (full && full.seasonId) || '';
+      var sOpt = '<option value="">— 不归属 —</option>' +
+        seasons.map(function (s) {
+          return '<option value="' + s.id + '"' + (s.id === sid ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+        }).join('');
       rows += '<tr>' +
         '<td><b>' + esc(m.name) + '</b></td>' +
         '<td class="num">' + m.players + '</td>' +
         '<td class="num">' + m.stages + '</td>' +
         '<td>' + stTxt + '</td>' +
+        '<td class="noprint" style="min-width:150px">' +
+        '<select data-season-t="' + m.id + '" style="height:28px;min-height:28px;font-size:12px">' +
+        sOpt + '</select></td>' +
         '<td class="mono">' + esc(m.updatedAt || m.createdAt || '') + '</td>' +
         '<td class="noprint">' +
         '<button class="btn sm primary" data-act="openT" data-id="' + m.id + '">打开</button> ' +
@@ -254,7 +273,7 @@
     h += card('已有赛事（' + idx.length + '）',
       idx.length
         ? '<table class="compact"><thead><tr><th>赛事名称</th><th class="num">选手</th>' +
-        '<th class="num">阶段</th><th>状态</th><th>更新时间</th><th class="noprint">操作</th></tr></thead><tbody>' +
+        '<th class="num">阶段</th><th>状态</th><th class="noprint">赛季</th><th>更新时间</th><th class="noprint">操作</th></tr></thead><tbody>' +
         rows + '</tbody></table>'
         : '<div class="notice empty">还没有任何赛事。请输入名称后点击「新建赛事」，或导入已有的 JSON 存档。</div>'
     );
@@ -362,6 +381,296 @@
     return h;
   }
 
+  /* ================= 赛事积分榜体系 =================
+     积分规则定义在赛事里（每个名次 / 每个胜场值多少分），赛季页只做加总。
+     同一套编辑器同时服务「赛事默认」和「某个阶段单独设置」。 */
+
+  function ptsTopKeys(rule) {
+    var top = (rule && rule.rank && rule.rank.top) || {};
+    return Object.keys(top).map(function (k) { return parseInt(k, 10); })
+      .filter(function (n) { return n >= 1; }).sort(function (a, b) { return a - b; });
+  }
+
+  // 取档位表（旧规则没有 tiers 时用默认档位兜底）
+  function ptsTiersOf(rule) {
+    var t = (rule && rule.rank && rule.rank.tiers);
+    if (Array.isArray(t) && t.length) return t;
+    return M.defaultPtsRule().rank.tiers.map(function (x) { return Object.assign({}, x); });
+  }
+
+  /**
+   * 名次档位编辑器（v1.14.0）：几个名次一档
+   *   每行 = 「第 from ~ to 名 → pts 分」，可勾「晋级」
+   *   bindAttr：'data-bind'（赛事）/ 'data-sbind'（赛季）
+   */
+  function ptsRankGridHTML(prefix, rule, bindAttr) {
+    bindAttr = bindAttr || 'data-bind';
+    var tiers = ptsTiersOf(rule);
+    var h = '<div class="tier-list">';
+    tiers.forEach(function (t, i) {
+      var base = prefix + '.rank.tiers[' + i + ']';
+      var from = parseInt(t.from, 10) || (i + 1);
+      var to = parseInt(t.to, 10) || from;
+      h += '<div class="tier-row">' +
+        '<span class="tno">' + (i + 1) + '</span>' +
+        '<span class="tsep">第</span>' +
+        '<input class="tn" type="number" min="1" ' + bindAttr + '="' + base + '.from" value="' + from + '">' +
+        '<span class="tsep">~</span>' +
+        '<input class="tn" type="number" min="1" ' + bindAttr + '="' + base + '.to" value="' + to + '">' +
+        '<span class="tsep">名</span>' +
+        '<input class="tp" type="number" min="0" ' + bindAttr + '="' + base + '.pts" value="' +
+        (parseFloat(t.pts) || 0) + '">' +
+        '<span class="tsep">分</span>' +
+        '<label class="tadv"><input type="checkbox" ' + bindAttr + '="' + base + '.adv"' +
+        (t.adv ? ' checked' : '') + '><span>晋级</span></label>' +
+        '<button class="btn sm ghost tdel" data-act="ptsTierDel" data-i="' + i +
+        '" data-prefix="' + esc(prefix) + '" data-bind-attr="' + bindAttr + '">删除</button>' +
+        '</div>';
+    });
+    h += '</div>';
+    h += '<div class="hint" style="margin:6px 0 8px">每一档覆盖一段名次（如「第 2~3 名」），<b>同档同分</b>。' +
+      '没被任何一档覆盖的名次，按下面「每降 1 名扣」从上一个档位递减。<br>' +
+      '勾「晋级」= 在积分榜上把这些名次画成<b>晋级线内</b>（只是标注）；' +
+      '要按晋级真正给分，用下面的「按是否晋级下一阶段给分」。</div>';
+    h += '<div class="row pts-tools">' +
+      '<button class="btn sm" data-act="ptsTierAdd" data-prefix="' + esc(prefix) +
+      '" data-bind-attr="' + bindAttr + '">+ 加一档</button>' +
+      '<button class="btn sm ghost" data-act="ptsFill" data-prefix="' + esc(prefix) +
+      '" data-bind-attr="' + bindAttr + '">延伸最后一档到第 N 名</button>' +
+      '</div>';
+    return h;
+  }
+
+  function ptsModeName(mode) {
+    if (mode === 'win') return '按胜场';
+    if (mode === 'adv') return '按是否晋级';
+    return '按名次';
+  }
+
+  function ptsFormHTML(prefix, rule, depth) {
+    var h = '<div class="grid2">';
+    h += fld('计分方式', sel(prefix + '.mode', [
+      { key: 'rank', name: '按名次给分' },
+      { key: 'win', name: '按胜场给分' },
+      { key: 'adv', name: '按是否晋级下一阶段给分' }
+    ], rule.mode),
+      rule.mode === 'adv'
+        ? '晋级到下一阶段的人拿一笔分、没晋级的人拿另一笔分。这是<b>独立的计分方式</b>，不再叠加名次分 / 胜场分。'
+        : '三种计分方式选一种：名次 / 胜场 / 是否晋级下一阶段。');
+    if (depth === 0) {
+      h += fld('计分单元', sel(prefix + '.unit', [
+        { key: 'tournament', name: '整站算一次分' },
+        { key: 'stage', name: '站内每个阶段各算一次' }
+      ], rule.unit));
+    }
+    h += '</div>';
+
+    if (rule.mode === 'rank') {
+      h += '<h4>名次分档（几个名次一档）</h4>' + ptsRankGridHTML(prefix, rule);
+      var lastTo = 0;
+      ptsTiersOf(rule).forEach(function (t) { lastTo = Math.max(lastTo, parseInt(t.to, 10) || parseInt(t.from, 10) || 0); });
+      h += '<div class="grid2">' +
+        fld('之后每降 1 名扣', inp('number', prefix + '.rank.step', rule.rank.step, ' min="0"'),
+          '第 ' + (lastTo + 1) + ' 名起按这个步长递减') +
+        fld('最低分', inp('number', prefix + '.rank.floor', rule.rank.floor, ' min="0"'),
+          '扣到这个分数就不再往下扣') +
+        '</div>';
+    } else if (rule.mode === 'win') {
+      h += '<h4>胜场分</h4><div class="grid4">' +
+        fld('每胜一场', inp('number', prefix + '.win.perWin', rule.win.perWin)) +
+        fld('每平一场', inp('number', prefix + '.win.perDraw', rule.win.perDraw)) +
+        fld('每负一场', inp('number', prefix + '.win.perLoss', rule.win.perLoss)) +
+        fld('参赛基础分', inp('number', prefix + '.win.base', rule.win.base)) +
+        '</div>';
+    } else {
+      /* ---- 按是否晋级下一阶段给分（v2.0：独立计分方式） ---- */
+      var adv = Object.assign({ yes: 100, no: 0 }, (rule && rule.adv) || {});
+      h += '<h4>按是否晋级下一阶段给分</h4><div class="grid2">' +
+        fld('晋级下一阶段得', inp('number', prefix + '.adv.yes', adv.yes, ' min="0"'),
+          '从这个计分单元出线的人') +
+        fld('没晋级得', inp('number', prefix + '.adv.no', adv.no, ' min="0"'),
+          '没出线的人（填 0 = 不给分）') +
+        '</div>';
+      h += '<div class="hint">晋级判定看<b>阶段实际晋级名单</b>（阶段「晋级条件」算出来的那批人），' +
+        '和名次档位上勾的「晋级」标注无关。<br>' +
+        (rule.unit === 'stage'
+          ? '当前按「每个阶段各算一次」：每个阶段都看「有没有从这个阶段出线」，再按阶段之间的叠加设置合计。' +
+            '<br>最后一个阶段后面没有比赛可晋级，想让这一阶段也计分：把要奖励的人勾进该阶段晋级名单，' +
+            '或在「阶段单独设置」里把它改成按名次 / 按胜场。'
+          : '当前按「整站算一次」：晋级 = 打进了最后一个阶段（只有一个阶段时看该阶段的晋级名单）。') +
+        '</div>';
+    }
+    return h;
+  }
+
+  function ptsCardHTML() {
+    if (!T) return '';
+    var r = T.ptsRule || M.defaultPtsRule();
+    var h = '<div class="row" style="margin-bottom:10px"><label class="switch">' +
+      '<input type="checkbox" data-bind="ptsRule.on"' + (r.on ? ' checked' : '') + '>' +
+      '<span>启用本赛事的积分榜体系</span></label></div>';
+    h += '<div class="hint" style="margin-bottom:12px">在这里定义<b>这场赛事怎么给分</b>' +
+      '（按名次 / 按胜场 / 按是否晋级，可以细到每个阶段单独设）。' +
+      '「排名」页会直接出现本赛事积分榜；赛季页只负责把各站的分数加起来，不再单独设分值。</div>';
+    if (!r.on) {
+      return card('赛事积分榜', h +
+        '<div class="notice empty">未启用。启用后本赛事会生成积分榜，排名页可查看与导出。</div>');
+    }
+
+    h += ptsFormHTML('ptsRule', r, 0);
+
+    if (r.unit === 'stage') {
+      h += '<h4>阶段之间的叠加（默认值）</h4>';
+      h += '<div class="row" style="margin-bottom:8px"><label class="switch">' +
+        '<input type="checkbox" data-bind="ptsRule.stack"' + (r.stack ? ' checked' : '') + '>' +
+        '<span>与之前的阶段叠加（累加）</span></label></div>';
+      h += '<div class="hint" style="margin-bottom:10px">勾选 = 每个阶段的分都保留、相加；' +
+        '不勾选 = 进入该阶段的人重新起算，之前的分数不保留。' +
+        '<b>单个阶段可以在「赛程阶段 → 该阶段 → 阶段积分」里单独指定叠加方式，优先于这里的默认值。</b></div>';
+      if (!r.stack) {
+        h += fld('重新起算范围', sel('ptsRule.resetScope', [
+          { key: 'participants', name: '只重置进入该阶段的人（其余人保留原分）' },
+          { key: 'all', name: '全榜清零（没参加的人也归零）' }
+        ], r.resetScope));
+      }
+    } else {
+      h += '<div class="hint" style="margin-top:10px">当前按<b>整站</b>算一次：名次取整站最终排名。' +
+        '想让每个阶段各拿一次分，把上面「计分单元」改成「站内每个阶段各算一次」。</div>';
+    }
+
+    /* ---- 阶段单独设置 ---- */
+    h += '<h4>阶段单独设置</h4>';
+    h += '<div class="hint" style="margin-bottom:8px">某个阶段的给分方式跟赛事默认不同' +
+      '（例如小组赛按胜场、淘汰赛按名次、资格赛按是否晋级），在这里给它单独一套规则。' +
+      (r.unit === 'stage'
+        ? ''
+        : '<b>注意：当前按整站计分，这里的给分方式要等「计分单元」改成「站内每个阶段各算一次」后才会生效。</b>') +
+      '</div>';
+    T.stages.forEach(function (s, si) {
+      var ov = (r.stageOv || {})[String(si)];
+      var open = (ptsStageOpen === si && ov);
+      var stk = s.ptsStack || 'inherit';
+      var stkTag = stk === 'reset' ? '<span class="tag inv">不叠加</span>'
+        : (stk === 'stack' ? '<span class="tag win">叠加</span>' : '');
+      h += '<div class="unit-row">' +
+        '<span class="uname">' + esc(s.name) + '</span>' +
+        stkTag +
+        (ov ? '<span class="tag win">单独设置 · ' + ptsModeName(ov.mode) + '</span>'
+          : '<span class="tag">跟随赛事默认</span>') +
+        '<button class="btn sm' + (open ? ' primary' : '') + '" data-act="ptsStageEdit" data-i="' + si + '">' +
+        (open ? '收起' : (ov ? '修改' : '单独设置')) + '</button>' +
+        (ov ? '<button class="btn sm ghost" data-act="ptsStageReset" data-i="' + si + '">恢复默认</button>' : '') +
+        '</div>';
+      if (open) {
+        h += '<div class="sub-panel">' + ptsFormHTML('ptsRule.stageOv.' + si, ov, 1) + '</div>';
+      }
+    });
+    if (!T.stages.length) h += '<div class="hint">还没有阶段。</div>';
+
+    return card('赛事积分榜', h);
+  }
+
+  /* ---------- 排名页：本赛事积分榜 ---------- */
+  function ptsCSVText(tp) {
+    function cell(v) {
+      var s = String(v === null || v === undefined ? '' : v);
+      return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+    var rule = (T && T.ptsRule) || M.defaultPtsRule();
+    var advOn = (rule.mode === 'rank') && E.rankAdvOn(rule);
+    var head = ['名次', '选手']
+      .concat(advOn ? ['晋级'] : [])
+      .concat(['积分', '计分次数', '最好名次'])
+      .concat(tp.units.map(function (u) { return u.label; }));
+    var lines = [head.map(cell).join(',')];
+    tp.rows.forEach(function (r) {
+      var row = [r.pos, r.name];
+      if (advOn) row.push(E.rankAdv(rule, r.best || r.pos) ? '晋级' : '');
+      row.push(U.fmt(r.total), r.stops, r.best || '');
+      tp.units.forEach(function (u) {
+        var x = r.units[u.key];
+        row.push(x ? U.fmt(x.pts) : '');
+      });
+      lines.push(row.map(cell).join(','));
+    });
+    return '\ufeff' + lines.join('\r\n');
+  }
+
+  function ptsBoardHTML() {
+    if (!T) return '';
+    var tp = E.tournamentPoints(T);
+    if (!tp.on) return '';
+    var rule = T.ptsRule;
+    var meta = ptsModeName(rule.mode) + ' · ' +
+      (rule.unit === 'stage' ? ('按阶段 · ' + tp.units.length + ' 个计分阶段') : '整站一次');
+    var h = '<section class="card"><div class="hd-row"><h3>赛事积分榜<span class="tag" style="margin-left:8px">' +
+      esc(meta) + '</span></h3><span class="spacer"></span>' +
+      '<button class="btn sm noprint" data-act="ptsCSV">导出积分榜 CSV</button></div>';
+
+    if (!tp.rows.length) {
+      return h + '<div class="notice empty">还没有可计分的名次。打完至少一个阶段后，这里会自动出分。</div></section>';
+    }
+    var advOn = (rule.mode === 'rank') && E.rankAdvOn(rule);
+    var head = '<th class="num" style="width:52px">名次</th><th>选手</th>' +
+      (advOn ? '<th style="width:64px">晋级</th>' : '') +
+      '<th class="num" style="width:70px">积分</th><th class="num" style="width:64px">计分次数</th>' +
+      '<th class="num" style="width:70px">最好</th>';
+    tp.units.forEach(function (u) {
+      head += '<th class="num" title="' + esc(u.label) + '">' + esc(u.label) + '</th>';
+    });
+    var body = '';
+    var advScore = E.ptsAdvOn(rule);
+    tp.rows.forEach(function (r) {
+      // 晋级分：这个人在各计分单元里拿到的晋级分合计 + 是否真的晋级
+      var advPts = 0, advYes = false;
+      Object.keys(r.units || {}).forEach(function (k) {
+        var u2 = r.units[k];
+        if (!u2) return;
+        if (u2.adv) advYes = true;
+        if (u2.advPts) advPts += u2.advPts;
+      });
+      body += '<tr' + (r.pos === 1 ? ' class="lead"' : '') + '>' +
+        '<td class="num"><span class="rank-badge' + (r.pos <= 3 ? ' r' + r.pos : '') + '">' + r.pos + '</span></td>' +
+        '<td><b>' + esc(r.name) + '</b>' +
+        (advScore && advYes ? '<span class="tag win" style="margin-left:6px">已晋级</span>' : '') + '</td>' +
+        (advOn ? '<td>' + (E.rankAdv(rule, r.best || r.pos)
+          ? '<span class="tag win">晋级</span>' : '<span class="hint">—</span>') + '</td>' : '') +
+        '<td class="num"><b>' + U.fmt(r.total) + '</b></td>' +
+        '<td class="num">' + r.stops + '</td>' +
+        '<td class="num">' + (r.best ? ('第 ' + r.best) : '—') + '</td>';
+      tp.units.forEach(function (u) {
+        var x = r.units[u.key];
+        body += '<td class="num">' + (x ? U.fmt(x.pts) : '—') + '</td>';
+      });
+      body += '</tr>';
+    });
+    h += '<div class="tbl-wrap"><table class="compact"><thead><tr>' + head + '</tr></thead><tbody>' +
+      body + '</tbody></table></div>';
+
+    var ovs = Object.keys(rule.stageOv || {});
+    h += '<div class="hint" style="margin-top:8px">' +
+      (rule.mode === 'rank'
+        ? ('名次分：' + (function () {
+          var ts = ptsTiersOf(rule);
+          var parts = ts.slice(0, 6).map(function (t) {
+            var f = parseInt(t.from, 10) || 1, e = parseInt(t.to, 10) || f;
+            return (f === e ? ('第' + f) : ('第' + f + '~' + e)) + '→' + U.fmt(t.pts);
+          });
+          if (ts.length > 6) parts.push('…');
+          return parts.join(' / ') + '，之后每名 −' + U.fmt(rule.rank.step) + '，最低 ' + U.fmt(rule.rank.floor);
+        })())
+        : (rule.mode === 'adv'
+          ? ('晋级分：晋级到下一阶段 +' + U.fmt(rule.adv.yes) + '，没晋级 ' + U.fmt(rule.adv.no))
+          : ('胜场分：每胜 +' + U.fmt(rule.win.perWin) + '，每平 +' + U.fmt(rule.win.perDraw) +
+            '，每负 ' + U.fmt(rule.win.perLoss) + '，参赛基础 ' + U.fmt(rule.win.base)))) +
+      (ovs.length ? ('；另有 ' + ovs.length + ' 个阶段单独设置') : '') +
+      '。分值在「赛事设置 → 赛事积分榜」里改。</div>';
+    if (tp.warnings.length) {
+      h += '<div class="notice inv" style="margin-top:10px">' + tp.warnings.map(esc).join('；') + '</div>';
+    }
+    return h + '</section>';
+  }
+
   /* ================= 视图一：赛事设置 ================= */
   function renderSetup() {
     if (!T) return '';
@@ -374,17 +683,80 @@
     );
 
     /* --- 局制 --- */
-    h += card('局制（默认值，可被单个阶段覆盖）',
-      fld('每场比赛局数', inp('number', 'format.gamesPerMatch', f.gamesPerMatch, ' min="1"')) +
+    var sets = Math.max(1, parseInt(f.sets, 10) || 1);
+    var fmtBody =
+      fld('每' + (sets > 1 ? '回合' : '场') + '比赛局数', inp('number', 'format.gamesPerMatch', f.gamesPerMatch, ' min="1"')) +
       fld('获胜所需局数', inp('number', 'format.winNeeded', f.winNeeded, ' min="0"'),
-        '先赢够该局数即结束整场比赛（剩余局不再进行）。填 <b>0</b> 表示不论赢几局都打满全部局数，最后按赢局多少判定。') +
+        '先赢够该局数即结束这一' + (sets > 1 ? '回合' : '场') + '（剩余局不再进行）。填 <b>0</b> 表示不论赢几局都打满全部局数，最后按赢局多少判定。') +
       fld('记录每局具体比分', inp('checkbox', 'format.recordScore', f.recordScore),
-        '开启后录入时可填每局具体比分数字，供「按小分累加 / 自定义公式」使用。') +
-      '<div class="hint">若某个阶段需要不同的局制（例如小组赛 BO1、淘汰赛 BO5），在该阶段的「本阶段局制与记分」中勾选独立设置。</div>'
-    );
+        '开启后录入时可填每局具体比分数字，供「按小分累加 / 自定义公式」使用。');
+    fmtBody += '<h4>回合（局之上的一层）</h4>' +
+      fld('每场比赛回合数', inp('number', 'format.sets', sets, ' min="1" max="99"'),
+        '填 <b>1</b> = 不分回合（与以前完全一样）。填 <b>3</b> 就是「三场' +
+        '（每场' + f.gamesPerMatch + '局）决出这场胜负」。');
+    if (sets > 1) {
+      fmtBody += '<div class="grid2">' +
+        fld('这场怎么定胜负', sel('format.setRule', [
+          { key: 'sets', name: '按赢下的回合数（默认）' },
+          { key: 'games', name: '按总大比分（各回合赢局相加）' },
+          { key: 'points', name: '按总得分（各回合小分相加）' }
+        ], f.setRule), '影响晋级判定与积分榜里的大比分口径。') +
+        fld('需赢几个回合', inp('number', 'format.setsToWin', f.setsToWin, ' min="0"'),
+          '填 0 = 自动取过半（' + sets + ' 回合 → 先赢 ' + (Math.floor(sets / 2) + 1) + ' 回合）。') +
+        '</div>';
+      fmtBody += '<div class="hint">举例：回合数 3 + 每回合五局三胜 = 打三场五局三胜，先拿下 2 场的获胜。' +
+        '选「按总大比分 / 总得分」时，三个回合都要打满再比较总数。</div>';
+    }
+    fmtBody += '<div class="hint">若某个阶段需要不同的局制（例如小组赛 BO1、淘汰赛 BO5），在该阶段的「本阶段局制与记分」中勾选独立设置。</div>';
+    h += card('局制（默认值，可被单个阶段覆盖）', fmtBody);
+
+    /* --- 团体赛 --- */
+    var tm2 = E.teamOf(T);
+    var tbody = fld('本赛事为团体赛',
+      inp('checkbox', 'team.on', tm2.on),
+      '开启后参赛单位变成<b>队伍</b>（每队若干队员），对阵与排名都按队伍计算。');
+    if (tm2.on) {
+      tbody += '<div class="grid2">' +
+        fld('团体赛赛制', sel('team.mode', [
+          { key: 'nvn', name: 'n 对 n（双方同时开打，赢下场数多者胜）' },
+          { key: 'conquest', name: '征服赛制（本方全员各赢一场才算赢）' },
+          { key: 'kof', name: 'KOF 拳皇（把对方全员都击败）' }
+        ], tm2.mode), '') +
+        fld('每队人数', inp('number', 'team.size', tm2.size, ' min="1" max="20"'),
+          '队伍<b>没维护队员</b>时用这个数兜底；正常以「选手管理」里实际的队员为准。') +
+        '</div>';
+      tbody += '<div class="grid2">' +
+        fld('每方上场人数', inp('number', 'team.playSize', tm2.playSize, ' min="0" max="20"'),
+          '填 0 = 报名的人都上。<b>队员不一定等于上场人数</b>：填 3 就只上 3 个人，第 4 人这场不打。') +
+        fld('比赛场制', '<span class="hint">每场对局都是下面「局制」里的 ' + f.gamesPerMatch + ' 局' +
+          (f.winNeeded > 0 ? '（先赢 ' + f.winNeeded + ' 局）' : '（打满）') +
+          '，团体赛的大比分 = 赢下的<b>场数</b>。</span>', '') +
+        '</div>';
+      var winTxt = tm2.mode === 'nvn'
+        ? '双方同时开打，<b>所有场次一次打完</b>再比赢下的场数，多者胜 —— 比分可能是 n:0、n−1:1 …… 有平局时还会是平局。'
+        : (tm2.mode === 'conquest'
+          ? '本方<b>所有上场队员都各赢下一场</b>之后，本方获胜（赢过的人不能再上、必须换人；对手可选换不换）。'
+          : '把对方<b>所有上场队员都击败</b>才算获胜（输的人下场、赢的人留场）。');
+      tbody += '<div class="notice">胜负条件：' + winTxt + '</div>';
+      tbody += '<div class="hint"><b>一桌 = 一场比赛</b>：一场团体赛由若干场对局组成，' +
+        '每场双方各派一名队员（可以每场都换人，同一场不能重复上）。' +
+        '录入顺序是<b>先定人、再录成绩</b>：' +
+        (tm2.mode === 'nvn'
+          ? 'n 对 n 是同时进行的，<b>必须先把整场所有对局的对阵都排好</b>，才允许录任何一场的成绩。'
+          : '一场一场来，录完一场会按赛制自动给出下一场该上的人，前面每一场谁上、结果如何都留在对阵表里。') +
+        '</div>';
+      tbody += '<div class="hint">某一场打完、满足上面的胜负条件，这一场团体赛就直接出结果（和个人赛结算一样，' +
+        '后面所有统计、排名、导出都按这个结果走）。队伍和队员在「② 选手管理」里维护（每队一行，可加多名队员）。</div>';
+    }
+    h += card('团体赛', tbody);
 
     /* --- 记分规则 --- */
-    h += card('记分规则（默认值，可被单个阶段覆盖）', scoringHTML('scoring', sc, T.format, null));
+    // 团体赛的大比分单位是「场」，大比分档要按「场数」枚举（否则档位对不上）
+    var scoreFmt = E.teamOn(T)
+      ? { gamesPerMatch: E.teamTableTotal(T, null), winNeeded: 0 }
+      : T.format;
+    h += card('记分规则（默认值，可被单个阶段覆盖）',
+      scoringHTML('scoring', sc, scoreFmt, null));
 
     /* --- 比赛计时器 --- */
     var tmCfg = E.tmCfg(T);
@@ -413,15 +785,15 @@
     sc.tieOrder.forEach(function (key, i) {
       var name = key;
       for (var k = 0; k < C.TIEBREAKERS.length; k++) if (C.TIEBREAKERS[k].key === key) name = C.TIEBREAKERS[k].name;
-      tb += '<div class="row" style="border:1px solid #000;padding:4px 8px;margin-bottom:3px">' +
-        '<b>' + (i + 1) + '</b> <span style="flex:1;font-weight:700">' + esc(name) + '</span>' +
+      tb += '<div class="row tie-row">' +
+        '<b>' + (i + 1) + '</b> <span class="tie-name">' + esc(name) + '</span>' +
         '<button class="btn sm" data-act="tieUp" data-i="' + i + '">上</button>' +
         '<button class="btn sm" data-act="tieDown" data-i="' + i + '">下</button>' +
         '<button class="btn sm danger" data-act="tieRemove" data-i="' + i + '">移除</button>' +
         '</div>';
     });
     if (!sc.tieOrder.length) {
-      tb += '<div class="row" style="border:1px dashed #000;padding:6px 8px">' +
+      tb += '<div class="row tie-empty">' +
         '<span class="hint">当前未启用任何排名依据，同分选手将保持录入顺序。</span></div>';
     }
     // 可添加的依据
@@ -435,6 +807,9 @@
         '</div>';
     }
     h += card('排名依据（Tiebreaker）', tb);
+
+    /* --- 赛事积分榜体系 --- */
+    h += ptsCardHTML();
 
     /* --- 轮空规则 --- */
     h += card('轮空规则（人数为奇数时）',
@@ -494,9 +869,15 @@
 
   function fmtText(f) {
     if (!f) return '';
-    return f.winNeeded > 0
+    var base = f.winNeeded > 0
       ? ('每场 ' + f.gamesPerMatch + ' 局 · 先赢 ' + f.winNeeded + ' 局')
       : ('每场 ' + f.gamesPerMatch + ' 局 · 打满');
+    var S = Math.max(1, parseInt(f.sets, 10) || 1);
+    if (S > 1) {
+      var rule = f.setRule === 'points' ? '总得分' : (f.setRule === 'games' ? '总大比分' : '赢下回合数');
+      base = S + ' 回合 × （' + base + '） · 按' + rule + '定胜负';
+    }
+    return base;
   }
 
   function scoringText(sc) {
@@ -535,7 +916,7 @@
     var i = editStage, s = T.stages[i];
     if (!s) return '';
     var p = 'stages[' + i + ']';
-    var h = '<div style="border:2px solid #000;padding:10px">';
+    var h = '<div class="stage-editor">';
 
     h += fld('阶段名称', inp('text', p + '.name', s.name, ' style="width:240px"'));
     h += fld('赛制类型', sel(p + '.type', C.STAGE_TYPES, s.type, true));
@@ -599,11 +980,25 @@
       '例如小组赛 BO1、淘汰赛 BO5，就分别在不同阶段勾选并设置。');
     if (s.useFormat) {
       var sf = Object.assign(M.defaultFormat(), s.format || effF);
-      h += '<div class="grid3">' +
-        fld('每场局数', inp('number', p + '.format.gamesPerMatch', sf.gamesPerMatch, ' min="1"')) +
+      var sSets = Math.max(1, parseInt(sf.sets, 10) || 1);
+      h += '<div class="grid4">' +
+        fld('每回合局数', inp('number', p + '.format.gamesPerMatch', sf.gamesPerMatch, ' min="1"')) +
         fld('获胜所需局数', inp('number', p + '.format.winNeeded', sf.winNeeded, ' min="0"')) +
+        fld('回合数', inp('number', p + '.format.sets', sSets, ' min="1" max="99"'),
+          '1 = 不分回合') +
         fld('记录每局比分', inp('checkbox', p + '.format.recordScore', sf.recordScore)) +
         '</div>';
+      if (sSets > 1) {
+        h += '<div class="grid2">' +
+          fld('本阶段怎么定胜负', sel(p + '.format.setRule', [
+            { key: 'sets', name: '按赢下的回合数' },
+            { key: 'games', name: '按总大比分（各回合赢局相加）' },
+            { key: 'points', name: '按总得分（各回合小分相加）' }
+          ], sf.setRule || 'sets'), '') +
+          fld('需赢几个回合', inp('number', p + '.format.setsToWin', sf.setsToWin, ' min="0"'),
+            '0 = 自动取过半（先赢 ' + (Math.floor(sSets / 2) + 1) + ' 回合）') +
+          '</div>';
+      }
     }
     h += fld('独立记分',
       '<label><input type="checkbox" data-bind="' + p + '.useScoring"' + (s.useScoring ? ' checked' : '') +
@@ -613,6 +1008,19 @@
       var stageTie = s.tie || 'sudden_death';
       h += scoringHTML(p + '.scoring', Object.assign(M.defaultScoring(), s.scoring || effS), effF, stageTie);
       h += '<div class="hint">同分排序依据（Tiebreaker）仍统一使用上方「排名依据」。</div>';
+    }
+
+    /* ---- 本阶段积分怎么和上一阶段合（v2.0）---- */
+    if (T.ptsRule && T.ptsRule.on) {
+      var stk = s.ptsStack || 'inherit';
+      h += '<h4>阶段积分</h4>';
+      h += fld('本阶段的积分怎么合', sel(p + '.ptsStack', [
+        { key: 'inherit', name: '跟随赛事默认（当前：' + ((T.ptsRule.stack !== false) ? '叠加' : '不叠加') + '）' },
+        { key: 'stack', name: '与上一阶段叠加（累加）' },
+        { key: 'reset', name: '不叠加：只有晋级到本阶段的人重新起算' }
+      ], stk),
+        '只在「赛事设置 → 赛事积分榜 → 计分单元 = 站内每个阶段各算一次」时生效。' +
+        '选「不叠加」时，晋级到本阶段的选手<b>只拿本阶段这一笔分</b>，之前阶段的分数不带过来。');
     }
 
     // 平局处理（所有赛制通用）
@@ -903,9 +1311,12 @@
   function renderPlayers() {
     if (!T) return '';
     var h = '';
+    var teamOn = E.teamOn(T);
+    var multiStage = T.stages.length > 1;
 
-    h += card('批量导入选手',
-      '<textarea id="bulkNames" placeholder="每行一个名字；也可用逗号、分号、制表符分隔&#10;例如：&#10;张三&#10;李四&#10;王五"></textarea>' +
+    h += card('批量导入' + (teamOn ? '队伍' : '选手'),
+      '<textarea id="bulkNames" placeholder="每行一个' + (teamOn ? '队名' : '名字') +
+      '；也可用逗号、分号、制表符分隔&#10;例如：&#10;' + (teamOn ? '红队' : '张三') + '&#10;' + (teamOn ? '蓝队' : '李四') + '"></textarea>' +
       '<div class="row" style="margin-top:8px">' +
       '<button class="btn primary" data-act="bulkImport">导入名单</button>' +
       '<button class="btn" data-act="bulkImportFile">从文件导入 (txt/csv)</button>' +
@@ -915,35 +1326,87 @@
       '</div>'
     );
 
+    if (multiStage) {
+      h += '<div class="notice">' +
+        '<b>从后续阶段开始</b>：把某个' + (teamOn ? '队伍' : '选手') + '的「起始阶段」设成第 2 阶段，' +
+        '他就不参加第 1 阶段，直接从第 2 阶段打起（种子 / 直邀 / 上届前四常用）。' +
+        '这一列改完立即生效，下一阶段生成名单时自动带上。' +
+        '</div>';
+    }
+
     var rows = '';
     T.players.forEach(function (p, i) {
       rows += '<tr>' +
         '<td class="num">' + (i + 1) + '</td>' +
-        '<td><input type="text" data-player="' + p.id + '" data-field="name" value="' + esc(p.name) + '" style="width:140px"></td>' +
+        '<td><input type="text" data-player="' + p.id + '" data-field="name" value="' + esc(p.name) + '" style="width:140px">' +
+        (p.isTeam ? '<span class="tag" style="margin-left:6px">队</span>' : '') + '</td>' +
         '<td class="num"><input type="number" data-player="' + p.id + '" data-field="seed" value="' + p.seed + '" style="width:64px"></td>' +
         '<td class="num"><input type="number" data-player="' + p.id + '" data-field="initialScore" value="' + p.initialScore + '" style="width:72px"></td>' +
-        '<td><input type="text" data-player="' + p.id + '" data-field="note" value="' + esc(p.note) + '" style="width:120px"></td>' +
+        (multiStage ? '<td class="num">' +
+          '<select data-player="' + p.id + '" data-field="startStage" style="width:96px">' +
+          T.stages.map(function (s, si) {
+            return '<option value="' + si + '"' + ((parseInt(p.startStage, 10) || 0) === si ? ' selected' : '') + '>' +
+              esc(s.name) + '</option>';
+          }).join('') + '</select></td>' : '') +
+        (teamOn ? '<td>' + teamMembersHTML(p) + '</td>' : '') +
+        '<td><input type="text" data-player="' + p.id + '" data-field="note" value="' + esc(p.note) + '" style="width:110px"></td>' +
         '<td>' + (p.active === false ? '<b>' + esc(p.dropReason || '已退出') + '</b>' : '在赛') + '</td>' +
         '<td class="noprint">' +
+        (teamOn ? '<button class="btn sm" data-act="addMember" data-id="' + p.id + '">+ 队员</button>' : '') +
         (p.active === false
           ? '<button class="btn sm" data-act="restorePlayer" data-id="' + p.id + '">恢复</button>'
           : '<button class="btn sm" data-act="dropPlayer" data-id="' + p.id + '">退赛</button>' +
           '<button class="btn sm" data-act="dqPlayer" data-id="' + p.id + '">取消资格</button>') +
         ' <button class="btn sm danger" data-act="delPlayer" data-id="' + p.id + '">删除</button>' +
         '</td></tr>';
+      if (teamOn) rows += teamMemberDetailHTML(p);
     });
 
-    h += card('选手列表（' + T.players.length + ' 人）',
+    var head = '<th class="num">#</th><th>' + (teamOn ? '队伍' : '姓名') + '</th><th class="num">种子</th>' +
+      '<th class="num">初始分</th>' + (multiStage ? '<th class="num">起始阶段</th>' : '') +
+      (teamOn ? '<th>队员</th>' : '') + '<th>备注</th><th>状态</th><th class="noprint">操作</th>';
+
+    h += card((teamOn ? '队伍列表（' : '选手列表（') + T.players.length + (teamOn ? ' 队）' : ' 人）'),
       T.players.length
-        ? '<table class="compact"><thead><tr><th class="num">#</th><th>姓名</th><th class="num">种子</th>' +
-        '<th class="num">初始分</th><th>备注</th><th>状态</th><th class="noprint">操作</th></tr></thead><tbody>' +
-        rows + '</tbody></table>'
-        : '<div class="notice empty">尚未导入任何选手。请在上方文本框粘贴名单后点击「导入名单」。</div>'
+        ? '<table class="compact"><thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table>'
+        : '<div class="notice empty">尚未导入任何' + (teamOn ? '队伍' : '选手') +
+        '。请在上方文本框粘贴名单后点击「导入名单」。</div>'
     );
 
-    h += '<div class="row"><button class="btn" data-act="addPlayer">+ 添加单个选手</button>' +
+    h += '<div class="row"><button class="btn" data-act="addPlayer">+ 添加单个' + (teamOn ? '队伍' : '选手') + '</button>' +
       '<span class="hint">种子号用于初始排位（蛇形分组 / 淘汰赛 bracket 位置），0 或留空表示无种子。</span></div>';
 
+    return h;
+  }
+
+  /* ---- 团体赛：队伍里的队员（表格里的一列，只显示人数 + 名字） ---- */
+  function teamMembersHTML(p) {
+    var ms = p.members || [];
+    if (!ms.length) return '<span class="hint">还没加队员</span>';
+    return '<span class="mchips">' + ms.map(function (mb) {
+      return '<span class="mchip">' + esc(mb.name) + '</span>';
+    }).join('') + '</span>';
+  }
+
+  /* ---- 团体赛：队员明细行（可改名 / 删除 / 调整上场顺序） ---- */
+  function teamMemberDetailHTML(p) {
+    var ms = p.members || [];
+    var h = '<tr class="mateam"><td></td><td colspan="9">' +
+      '<div class="mline"><b>' + esc(p.name) + ' 的队员（' + ms.length + ' 人）</b>';
+    if (!ms.length) h += '<span class="hint">点右侧「+ 队员」逐个添加，或直接批量填。</span>';
+    h += '</div>';
+    if (ms.length) {
+      h += '<div class="mlist">';
+      ms.forEach(function (mb, mi) {
+        h += '<div class="mitem">' +
+          '<span class="mno">' + (mi + 1) + '</span>' +
+          '<input type="text" data-tmember="' + mb.id + '" data-team="' + p.id + '" value="' + esc(mb.name) + '">' +
+          '<button class="btn sm ghost" data-act="delMember" data-id="' + p.id + '" data-mid="' + mb.id + '">删除</button>' +
+          '</div>';
+      });
+      h += '</div>';
+    }
+    h += '</td></tr>';
     return h;
   }
 
@@ -1335,9 +1798,9 @@
             wLabel = '总决赛 · 已升格（需 ' + E.gfElevNeed(wGf) + ' 胜）';
           } else wLabel = '总决赛';
         }
-        if (w.length) h += '<div style="font-weight:800;margin:6px 0 4px">' + wLabel + '</div>' + matchGrid(w);
-        if (l.length) h += '<div style="font-weight:800;margin:10px 0 4px">败者组</div>' + matchGrid(l);
-        if (t.length) h += '<div style="font-weight:800;margin:10px 0 4px">季军争夺战</div>' + matchGrid(t);
+        if (w.length) h += '<div class="msec">' + wLabel + '</div>' + matchGrid(w);
+        if (l.length) h += '<div class="msec loser">败者组</div>' + matchGrid(l);
+        if (t.length) h += '<div class="msec">季军争夺战</div>' + matchGrid(t);
       } else {
         h += matchGrid(ms);
       }
@@ -1415,6 +1878,207 @@
     return h;
   }
 
+  /* ---- 长行对阵（v1.14.0）：一行一场，右边是「录入比分」按钮 ---- */
+  function membersOf(id) {
+    var p = playerOf(id);
+    return (p && p.members) || [];
+  }
+  function memberName(teamId, mid) {
+    if (!mid) return '—';
+    var ms = membersOf(teamId);
+    for (var i = 0; i < ms.length; i++) if (ms[i].id === mid) return ms[i].name;
+    return '（已删除）';
+  }
+
+  /**
+   * 常显快捷录入（个人赛）
+   *   一行的右侧直接给出录入控件，不用展开明细：
+   *   比分 A:B + 结算 + A 胜 / B 胜 / 平 + 撤销上局
+   *   （团体赛不用这里：它走下方「团体对阵」表，先排阵再录成绩）
+   */
+  function quickEntryHTML(m, c) {
+    if (c.readonly || m.isBye) return '';
+    var gy = m.games || [];
+    var undo = '<button class="btn sm ghost" data-act="undoGame" data-id="' + m.id + '"' +
+      (gy.length ? '' : ' disabled') + '>撤销上局</button>';
+
+    /* 已结束的比赛也要留「比分 + 结算」：这就是改判入口 */
+    var h2 = '<span class="mquick noprint' + (m.decided ? ' done' : '') + '">';
+    var sc = c.sc, fmt = c.fmt;
+    var S = E.setCount(fmt);
+    var curSetNo = S > 1 ? E.curSet(m, fmt, c.stage.tie) : 0;
+    var setNow = S > 1 ? E.progressSet(m, curSetNo) : null;
+
+    // 需要逐局小分时（按小分累加 / 记录每局比分），先给「本局比分」
+    if (sc.mode === 'points' || fmt.recordScore) {
+      h2 += '<span class="bscg"><span class="qlabel">' + (S > 1 ? ('回合' + (curSetNo + 1) + ' 本局') : '本局') + '</span>' +
+        '<input class="inline-num" type="number" min="0" id="sa_' + m.id + '" placeholder="A">' +
+        '<span class="qcolon">:</span>' +
+        '<input class="inline-num" type="number" min="0" id="sb_' + m.id + '" placeholder="B"></span>';
+    }
+    if (sc.mode !== 'points') {
+      var W = Math.max(0, parseInt(fmt.winNeeded, 10) || 0);
+      var N = Math.max(1, parseInt(fmt.gamesPerMatch, 10) || 1);
+      var capA = W > 0 ? W : N, capB = capA;
+      if (m.gfAdv) {
+        var needG = W > 0 ? W : (Math.floor(N / 2) + 1);
+        capA = needG - (c.advA || 0); capB = needG - (c.advB || 0);
+      }
+      h2 += '<span class="bscg"><span class="qlabel">' + (S > 1 ? ('回合' + (curSetNo + 1)) : '比分') + '</span>' +
+        '<input class="inline-num" type="number" min="0" max="' + capA + '" id="qa_' + m.id + '"' +
+        ' value="' + (setNow ? (setNow.a || '') : (gy.length ? (c.r.gamesA || 0) : '')) + '" placeholder="0">' +
+        '<span class="qcolon">:</span>' +
+        '<input class="inline-num" type="number" min="0" max="' + capB + '" id="qb_' + m.id + '"' +
+        ' value="' + (setNow ? (setNow.b || '') : (gy.length ? (c.r.gamesB || 0) : '')) + '" placeholder="0"></span>';
+      h2 += '<button class="btn sm primary" data-act="applyScore" data-id="' + m.id + '">结算</button>';
+    }
+    h2 += '<span class="bmtn">' +
+      '<button class="btn sm" data-act="addGame" data-id="' + m.id + '" data-w="A"' +
+      (c.canAdd ? '' : ' disabled') + ' title="让 ' + esc(c.na) + ' 拿下这一局">A 胜</button>' +
+      '<button class="btn sm" data-act="addGame" data-id="' + m.id + '" data-w="B"' +
+      (c.canAdd ? '' : ' disabled') + ' title="让 ' + esc(c.nb) + ' 拿下这一局">B 胜</button>' +
+      '<button class="btn sm" data-act="addGame" data-id="' + m.id + '" data-w="D"' +
+      (c.canAdd ? '' : ' disabled') + ' title="这一局平局">平</button>' +
+      undo + '</span>';
+    return h2 + '</span>';
+  }
+
+  /**
+   * 团体赛「一场 = 一桌」对阵表（v2.1）
+   *   每行 = 一场对局：先选双方上场队员（排阵），再录这一场的局分与胜方；
+   *   nvn 必须把全部对局都排好阵才能录成绩（同时进行，先知道所有对阵）；
+   *   征服 / KOF 依次进行，只显示当前这一场（前面每一场的上场人与结果都能看到）。
+   */
+  function teamTabHTML(m, c) {
+    var cfg = E.teamOf(T);
+    var ts = E.teamScore(T, m);
+    var nvn = cfg.mode === 'nvn';
+    var total = ts.tables, done = ts.done;
+    var ro = !!c.readonly;
+    var decided = !!m.decided;
+    var ready = ts.lineupReady;
+    var bf = E.boardFmtOf(T, c.stage);
+    var cap = bf.winNeeded > 0 ? bf.winNeeded : bf.gamesPerMatch;
+    var canDraw = ((c.stage && c.stage.tie) === 'draw_ok');
+    var na = c.na, nb = c.nb;
+
+    function short(x) { x = String(x || ''); return x.length > 6 ? x.slice(0, 6) + '…' : x; }
+    // 征服 / KOF 依次进行 → 当前这场按赛制给默认上场的人；
+    // nvn 只有「平局加赛」那一场才给默认（加赛是新的一轮，可以重新派人）
+    var nx = (!nvn || done >= total) ? E.teamNextBoard(T, m) : null;
+
+    function selSide(si, side, cur) {
+      var sd = (side === 'a') ? 'A' : 'B';
+      var teamId = (sd === 'A') ? m.playerA : m.playerB;
+      var list = E.teamEligible(T, m, sd, si);
+      var id = 'ts' + side + '_' + m.id + '_' + si;
+      var opts = '<option value="">— 选队员 —</option>', found = false;
+      list.forEach(function (mb) {
+        if (cur === mb.id) found = true;
+        opts += '<option value="' + esc(mb.id) + '"' + (cur === mb.id ? ' selected' : '') + '>' + esc(mb.name) + '</option>';
+      });
+      if (cur && !found) {
+        opts = '<option value="' + esc(cur) + '" selected>' + esc(memberName(teamId, cur)) + '</option>' + opts;
+      }
+      return '<select class="tt-pl" id="' + id + '" data-tslot="' + side + '" data-id="' + m.id +
+        '" data-s="' + si + '"' + (ro ? ' disabled' : '') + '>' + opts + '</select>';
+    }
+
+    var h = '<div class="teamtab' + (done || decided ? ' hasdone' : '') + '">';
+    h += '<div class="tt-hd"><b>团体对阵 · 共 ' + total + ' 场' +
+      (done > total ? '（含 ' + (done - total) + ' 场加赛）' : '') + '</b>' +
+      '<span class="tt-sub">' + (nvn
+        ? 'nvn 同时进行：' + (ready
+          ? '对阵已排好，可以逐场录成绩'
+          : '还要排好剩下 ' + Math.max(0, total - ts.paired) + ' 场的上场队员，才能录成绩')
+        : (cfg.mode === 'conquest'
+          ? '征服：赢过的人必须换下（对手可选换）'
+          : 'KOF：赢者留场、输者换人')) +
+      '　每场打 ' + bf.gamesPerMatch + ' 局' + (bf.winNeeded > 0 ? '，先赢 ' + bf.winNeeded + ' 局' : '，打满') + '</span>';
+    if (!ro && !decided) {
+      h += '<span class="tt-tools">' +
+        '<button class="btn sm ghost" data-act="autoLineup" data-id="' + m.id + '">按名单排阵</button>' +
+        '<button class="btn sm ghost" data-act="clearLineup" data-id="' + m.id + '">清空未打的</button>' +
+        '</span>';
+    }
+    h += '</div>';
+
+    /* 列到第几场（index）：
+       nvn 同时进行 → 规定的场次全列出来；已经加赛的话再往后加当前这场
+       征服 / KOF → 只列到当前这一场（前面打完的都在，后面的还没轮到）
+       已结束 → 打过几场就显示几场（含加赛） */
+    var lastShow = (nvn || ro)
+      ? Math.max(total - 1, done - (decided ? 1 : 0))
+      : Math.min(total - 1, done);
+    if (decided) lastShow = Math.max(lastShow, done - 1);
+    for (var i = 0; i <= lastShow; i++) {
+      var g = E.teamGameAt(m, i);
+      var pl = E.teamSlotPlayers(m, i);
+      if (!g && nx && i === done) {
+        if (!pl.a && nx.a) pl.a = nx.a;
+        if (!pl.b && nx.b) pl.b = nx.b;
+      }
+      if (g) {
+        /* 已打完这一场：显示上场队员 / 局分 / 结果 */
+        var wcls = (g.w === 'A') ? ' aw' : (g.w === 'B' ? ' bw' : ' dw');
+        var wtxt = (g.w === 'A') ? (short(na) + ' 胜') : (g.w === 'B' ? (short(nb) + ' 胜') : '平');
+        h += '<div class="tt-row done' + wcls + '">' +
+          '<span class="tt-n">' + (i >= total ? ('加赛 · 第 ' + (i + 1) + ' 场') : ('第 ' + (i + 1) + ' 场')) + '</span>' +
+          '<span class="tt-a">' + esc(memberName(m.playerA, g.pa)) + '</span>' +
+          '<span class="tt-sc">' + (typeof g.a === 'number' ? g.a : '-') + ' : ' +
+          (typeof g.b === 'number' ? g.b : '-') + '</span>' +
+          '<span class="tt-b">' + esc(memberName(m.playerB, g.pb)) + '</span>' +
+          '<span class="tt-w">' + esc(wtxt) + '</span>' +
+          (ro || decided ? '' : '<span class="tt-x"><button class="btn sm ghost" data-act="undoBoard" data-id="' +
+            m.id + '" data-s="' + i + '">撤销</button></span>') +
+          '</div>';
+        continue;
+      }
+      /* 未打完：排阵 + 录成绩 */
+      var canRec = !ro && !decided && (nvn ? ready : true);
+      var noTxt = (i >= total) ? ('加赛 · 第 ' + (i + 1) + ' 场') : ('第 ' + (i + 1) + ' 场');
+      h += '<div class="tt-row' + (i === done ? ' cur' : '') + '">' +
+        '<span class="tt-n">' + noTxt + '</span>' +
+        selSide(i, 'a', pl.a) +
+        '<span class="tt-vs">vs</span>' +
+        selSide(i, 'b', pl.b) +
+        '<span class="tt-sc">' +
+        '<input class="inline-num" type="number" min="0" max="' + cap + '" id="tg_' + m.id + '_' + i + '_a" placeholder="A"' + (ro ? ' disabled' : '') + '>' +
+        '<span class="qcolon">:</span>' +
+        '<input class="inline-num" type="number" min="0" max="' + cap + '" id="tg_' + m.id + '_' + i + '_b" placeholder="B"' + (ro ? ' disabled' : '') + '>' +
+        '</span>' +
+        (ro || decided ? '' :
+          '<span class="tt-btn">' +
+          '<button class="btn sm primary" data-act="addBoard" data-id="' + m.id + '" data-s="' + i + '" data-w="A"' +
+          (canRec ? '' : ' disabled') + ' title="让 ' + esc(na) + ' 赢下第 ' + (i + 1) + ' 场">' + esc(short(na)) + ' 胜</button>' +
+          '<button class="btn sm" data-act="addBoard" data-id="' + m.id + '" data-s="' + i + '" data-w="B"' +
+          (canRec ? '' : ' disabled') + ' title="让 ' + esc(nb) + ' 赢下第 ' + (i + 1) + ' 场">' + esc(short(nb)) + ' 胜</button>' +
+          (canDraw ? '<button class="btn sm" data-act="addBoard" data-id="' + m.id + '" data-s="' + i + '" data-w="D"' +
+            (canRec ? '' : ' disabled') + '>平</button>' : '') +
+          '</span>') +
+        '</div>';
+    }
+
+    /* 底部提示：还要几场、谁还能上 */
+    if (!decided) {
+      var extra = [];
+      if (ts.need) extra.push('达标线：' + esc(na) + ' 赢 ' + ts.need.a + ' 场、' + esc(nb) + ' 赢 ' + ts.need.b + ' 场（已 ' +
+        ts.winsA + ':' + ts.winsB + '）');
+      else if (m.overtime) extra.push('规定的 ' + total + ' 场打成 ' + ts.winsA + ':' + ts.winsB + ' 平局 → <b>加赛一场</b>定胜负（双方可以重新派人）');
+      else extra.push('已打 ' + done + '/' + total + ' 场，当前 ' + ts.winsA + ':' + ts.winsB + '（全部打完比赢下场数）');
+      var ea = E.teamEligible(T, m, 'A'), eb = E.teamEligible(T, m, 'B');
+      if (!ea.length) extra.push(esc(na) + ' 已经没有能上场的队员了');
+      if (!eb.length) extra.push(esc(nb) + ' 已经没有能上场的队员了');
+      h += '<div class="tt-ft">' + extra.join('　·　') + '</div>';
+    } else {
+      h += '<div class="tt-ft">本场已结束：' + (m.result && m.result.winner
+        ? esc(nameOf(m.result.winner === 'A' ? m.playerA : m.playerB)) + ' 获胜（' + ts.winsA + ':' + ts.winsB + '）'
+        : '平局（' + ts.winsA + ':' + ts.winsB + '）') + '</div>';
+    }
+    h += '</div>';
+    return h;
+  }
+
   function matchCard(m, seat) {
     var na = nameOf(m.playerA), nb = nameOf(m.playerB);
     var r = m.result || { gamesA: 0, gamesB: 0, winner: null };
@@ -1424,8 +2088,9 @@
     var rd = rd_of_match(m);
     var advA = (m.gfAdv && m.gfAdv.side === 'A') ? m.gfAdv.games : 0;
     var advB = (m.gfAdv && m.gfAdv.side === 'B') ? m.gfAdv.games : 0;
-
-    var h = '<div class="match ' + (m.decided ? 'done' : 'pending') + '">';
+    var teamOn = E.teamOn(T);
+    var S = E.setCount(fmt);
+    var mCls = m.decided ? 'done' : ((m.games || []).length ? 'pending running' : 'pending');
 
     var headParts = [seat ? ('第 ' + seat + ' 桌') : ('M' + (m.round + 1))];
     if (m.isThird) headParts.push('季军赛');
@@ -1458,15 +2123,72 @@
         }
       } else statusTxt = '平局';
     }
-    else statusTxt = '进行中 ' + (m.games || []).length + '/' + E.matchMaxGames(m, fmt) + ' 局';
+    else {
+      if (teamOn) {
+        var tsx = E.teamScore(T, m);
+        statusTxt = '进行中 ' + tsx.done + '/' + tsx.tables + ' 场（' + tsx.winsA + ':' + tsx.winsB + '）';
+      } else {
+        statusTxt = S > 1
+          ? ('进行中 · 第 ' + (E.curSet(m, fmt, stage.tie) + 1) + '/' + S + ' 回合')
+          : ('进行中 ' + (m.games || []).length + '/' + E.matchMaxGames(m, fmt) + ' 局');
+      }
+    }
     if (m.override) statusTxt += '（手动指定）';
     if (m.result && m.result.unfinished) {
       statusTxt += m.result.endReason === 'timeout' ? '（计时器到点 · 未打完）' : '（未打完）';
     }
 
-    h += '<div class="match-head"><span>' + esc(headParts.join(' · ')) + '</span><span>' + esc(statusTxt) + '</span></div>';
+    var dispA = (r.gamesA || 0) + advA;
+    var dispB = (r.gamesB || 0) + advB;
+    // 大比分单位：团体赛按场、多回合按回合 / 局 / 分
+    var scoreLabel = '';
+    if (teamOn) scoreLabel = '场';
+    else if (S > 1) scoreLabel = (fmt.setRule === 'points' ? '分' : (fmt.setRule === 'games' ? '局' : '回合'));
 
-    // 淘汰赛：直接在对阵卡片上标出胜者 / 负者的下一场比赛
+    var h = '<div class="match mrow ' + mCls + (openMore[m.id] ? ' open' : '') + '">';
+
+    /* ---------- 长行主行 ---------- */
+    h += '<div class="mrow-main' + (teamOn ? ' teammode' : '') + '">';
+    h += '<span class="mseat">' + esc(headParts[0]) + '</span>';
+    h += '<span class="mside side a' + (winA ? ' win' : '') + '">' +
+      '<span class="pname">' + esc(na) + '</span>' +
+      (recHTML(CUR_LIVE[m.playerA], m.playerA) ? '<span class="prec">' + recHTML(CUR_LIVE[m.playerA], m.playerA) + '</span>' : '') +
+      '</span>';
+    h += '<span class="bscore bigscore">' + dispA + ' : ' + dispB +
+      (scoreLabel ? '<i>' + scoreLabel + '</i>' : '') + '</span>';
+    h += '<span class="mside side b' + (winB ? ' win' : '') + '">' +
+      '<span class="pname">' + esc(nb) + '</span>' +
+      (recHTML(CUR_LIVE[m.playerB], m.playerB) ? '<span class="prec">' + recHTML(CUR_LIVE[m.playerB], m.playerB) + '</span>' : '') +
+      '</span>';
+    h += '<span class="mtags">';
+    for (var hi = 1; hi < headParts.length; hi++) h += '<span class="tag">' + esc(headParts[hi]) + '</span>';
+    h += '</span>';
+    h += '<span class="mstat' + (m.decided ? ' done' : '') + '">' + esc(statusTxt) + '</span>';
+    /* 快捷录入常驻在行右侧（个人赛）；团体赛的对阵 / 录入在下方对阵表里 */
+    if (!teamOn) {
+      h += quickEntryHTML(m, {
+        readonly: REND_RO, fmt: fmt, sc: sc, stage: stage, r: r,
+        canAdd: E.canAddGame(m, fmt, stage.tie), na: na, nb: nb, advA: advA, advB: advB
+      });
+    }
+    h += '<span class="mbrk"></span>';
+    var openTxt = openMore[m.id] ? '收起' : '明细';
+    h += '<span class="mact noprint">' +
+      (m.isBye ? '' : '<button class="btn sm' + (m.decided ? '' : ' ghost') + '" data-act="toggleMore" data-id="' +
+        m.id + '" data-decided="' + (m.decided ? '1' : '0') + '">' + openTxt + '</button>') +
+      '</span>';
+    h += '</div>';
+
+    /* ---------- 团体赛：一场 = 一桌的对阵表（常显在行下方，先排阵再录成绩） ---------- */
+    if (teamOn) {
+      h += teamTabHTML(m, {
+        readonly: REND_RO, fmt: fmt, sc: sc, stage: stage, r: r, na: na, nb: nb
+      });
+    }
+
+    /* ---------- 展开区：比分明细 ---------- */
+    h += '<div class="mrow-detail">';
+
     if (CUR_PATHS && !m.isBye) {
       var pw = CUR_PATHS.win[m.id], pl = CUR_PATHS.lose[m.id];
       h += '<div class="matchpath">' +
@@ -1476,36 +2198,21 @@
     }
 
     if (m.isBye) {
-      h += '<div class="match-body"><div class="side" style="flex:1">' +
-        '<div class="pname">' + esc(na || nb) + '</div>' +
-        (recHTML(CUR_LIVE[m.playerA || m.playerB], m.playerA || m.playerB)
-          ? '<div class="prec">' + recHTML(CUR_LIVE[m.playerA || m.playerB], m.playerA || m.playerB) + '</div>' : '') +
-        '<div class="psub">本轮轮空，直接获得轮空积分</div></div></div>';
-      h += '</div>';
+      h += '<div class="byeline">' + esc(na || nb) + ' 本轮轮空，直接获得轮空积分</div>';
+      h += '</div></div>';
       return h;
     }
 
-    var dispA = (r.gamesA || 0) + advA;
-    var dispB = (r.gamesB || 0) + advB;
-    h += '<div class="match-body">';
-    h += '<div class="side ' + (winA ? 'win' : '') + '">' +
-      '<div class="pname">' + esc(na) + '</div>' +
-      '<div class="prec">' + recHTML(CUR_LIVE[m.playerA], m.playerA) + '</div>' +
-      '<div class="psub">' + esc(subOf(m.playerA)) + '</div>' +
-      '</div>';
-    h += '<div class="center-col"><div class="bigscore">' + dispA + ' : ' + dispB + '</div>' +
-      '<div style="font-size:12px;font-weight:700">' + ((m.games || []).length) + ' 局已打' +
-      ((m.gfAdv && (advA || advB)) ? '（含先计）' : '') + '</div></div>';
-    h += '<div class="side ' + (winB ? 'win' : '') + '">' +
-      '<div class="pname">' + esc(nb) + '</div>' +
-      '<div class="prec">' + recHTML(CUR_LIVE[m.playerB], m.playerB) + '</div>' +
-      '<div class="psub">' + esc(subOf(m.playerB)) + '</div>' +
-      '</div>';
-    h += '</div>';
+    var gy = (m.games || []);
 
-    if ((m.games || []).length) {
-      var g = '<div class="games" style="padding:6px 10px;border-top:1px dashed #000">';
-      (m.games).forEach(function (game, i) {
+
+    /* ---- 逐局明细（按回合分组） ---- */
+    if (gy.length && !teamOn) {
+      var g = '<div class="games">';
+      var lastS = -1;
+      gy.forEach(function (game, i) {
+        var si = parseInt(game.s, 10) || 0;
+        if (S > 1 && si !== lastS) { g += '<span class="setsep">回合 ' + (si + 1) + '</span>'; lastS = si; }
         var s = game.w === 'A' ? ('A 胜 ' + na) : (game.w === 'B' ? ('B 胜 ' + nb) : '平局');
         if (typeof game.a === 'number' && typeof game.b === 'number') s += ' (' + game.a + ':' + game.b + ')';
         g += '<span class="gamechip">G' + (i + 1) + ' ' + esc(s) + '</span>';
@@ -1514,67 +2221,48 @@
       h += g;
     }
 
-    var canAdd = E.canAddGame(m, fmt, stage.tie);
-    if (!REND_RO) {                      // 旧阶段只读：不渲染任何录入控件
-    h += '<div class="match-foot noprint">';
-    h += tmRowHTML(m);
+    /* ---- 回合进度条 ---- */
+    if (S > 1) {
+      var curS0 = E.curSet(m, fmt, stage.tie);
+      h += '<div class="setbar">';
+      for (var si2 = 0; si2 < S; si2++) {
+        var sp = E.progressSet(m, si2);
+        var sw = E.setWinnerOf(m, si2, fmt, stage.tie);
+        h += '<span class="setchip' + (sw ? ' done' : '') + (si2 === curS0 ? ' cur' : '') + '">' +
+          '回合 ' + (si2 + 1) + ' <b>' + sp.a + ':' + sp.b + '</b>' +
+          (sw ? ' · ' + (sw === 'A' ? esc(na) : esc(nb)) + ' 胜' : '') + '</span>';
+      }
+      h += '</div>';
+      h += '<div class="hint" style="margin:2px 0 6px">本场共 ' + S + ' 个回合，每个回合打 ' +
+        fmt.gamesPerMatch + ' 局' + (fmt.winNeeded > 0 ? '（先赢 ' + fmt.winNeeded + ' 局）' : '（打满）') +
+        '；判定依据：' + (fmt.setRule === 'points' ? '总得分' : (fmt.setRule === 'games' ? '总大比分' : '赢下回合数')) +
+        (fmt.setRule === 'sets' ? '（先赢 ' + E.setsNeeded(fmt) + ' 回合）' : '') +
+        '。录入自动记到当前回合。</div>';
+    }
 
-    /* ---- 快捷结算：直接填「几比几」，自动判胜负并按规则算分 ---- */
-    if (sc.mode === 'points') {
-      h += '<div class="quickrow"><span class="hint">当前为「按小分累加」计分，需逐局录入具体比分。</span></div>';
-    } else {
-      var W = Math.max(0, parseInt(fmt.winNeeded, 10) || 0);
-      var N = Math.max(1, parseInt(fmt.gamesPerMatch, 10) || 1);
-      var capA = W > 0 ? W : N, capB = capA;
-      if (m.gfAdv) {
-        var needG = W > 0 ? W : (Math.floor(N / 2) + 1);
-        capA = needG - advA; capB = needG - advB;
-      }
-      var tip;
-      if (sc.mode === 'result') tip = '胜 +' + sc.win + ' / 负 +' + sc.lose;
-      else if (sc.mode === 'games') tip = '每赢 1 局 +' + sc.perGame;
-      else if (sc.mode === 'scoreline') {
-        var parts = [];
-        E.scoreLines(fmt, stage.tie).forEach(function (L) {
-          var rr = E.scoreRow(sc.scoreTable, L.key, L.draw, sc);
-          parts.push(L.a + ':' + L.b + '→' + (L.draw ? ('各' + rr.d) : (rr.w + '/' + rr.l)));
-        });
-        tip = parts.join('　');
-      }
-      else tip = '按公式计算';
-      var hasGames = (m.games || []).length > 0;
-      h += '<div class="quickrow">' +
-        '<span class="qlabel">直接填比分</span>' +
-        '<input class="inline-num" type="number" min="0" max="' + capA + '" id="qa_' + m.id + '"' +
-        ' value="' + (hasGames ? (r.gamesA || 0) : '') + '" placeholder="0">' +
-        '<span class="qcolon">:</span>' +
-        '<input class="inline-num" type="number" min="0" max="' + capB + '" id="qb_' + m.id + '"' +
-        ' value="' + (hasGames ? (r.gamesB || 0) : '') + '" placeholder="0">' +
-        '<button class="btn sm primary" data-act="applyScore" data-id="' + m.id + '">结算</button>' +
-        '<span class="hint">填双方各赢几局（回车即结算）· ' + tip + '</span>' +
+    if (REND_RO) {                      // 旧阶段只读
+      h += '</div></div>';
+      return h;
+    }
+
+    /* ---- 录入已全部移到行右侧的快捷区；这里只留「指定晋级」这类低频操作 ---- */
+    if (isElimStage(stage) && m.decided && r.winner === null) {
+      h += '<div class="quickrow noprint">' +
+        '<button class="btn sm" data-act="override" data-id="' + m.id + '" data-w="A">指定 ' + esc(na) + ' 晋级</button>' +
+        '<button class="btn sm" data-act="override" data-id="' + m.id + '" data-w="B">指定 ' + esc(nb) + ' 晋级</button>' +
         '</div>';
     }
-
-    h += '<div class="quickrow">';
-    if (fmt.recordScore) {
-      h += '<span style="font-size:13px;font-weight:700">比分 ' +
-        '<input class="inline-num" type="number" id="sa_' + m.id + '" placeholder="A">' +
-        ' : <input class="inline-num" type="number" id="sb_' + m.id + '" placeholder="B"></span>';
+    if (m.override) {
+      h += '<div class="quickrow noprint"><button class="btn sm" data-act="clearOverride" data-id="' + m.id + '">取消指定</button></div>';
     }
-    h += '<button class="btn sm" data-act="addGame" data-id="' + m.id + '" data-w="A"' + (canAdd ? '' : ' disabled') + '>' + esc(na) + ' 胜</button>';
-    h += '<button class="btn sm" data-act="addGame" data-id="' + m.id + '" data-w="B"' + (canAdd ? '' : ' disabled') + '>' + esc(nb) + ' 胜</button>';
-    h += '<button class="btn sm" data-act="addGame" data-id="' + m.id + '" data-w="D"' + (canAdd ? '' : ' disabled') + '>平局</button>';
-    h += '<button class="btn sm" data-act="undoGame" data-id="' + m.id + '"' + ((m.games || []).length ? '' : ' disabled') + '>撤销上局</button>';
-    if (isElimStage(stage) && m.decided && r.winner === null) {
-      h += '<button class="btn sm" data-act="override" data-id="' + m.id + '" data-w="A">指定 ' + esc(na) + ' 晋级</button>';
-      h += '<button class="btn sm" data-act="override" data-id="' + m.id + '" data-w="B">指定 ' + esc(nb) + ' 晋级</button>';
-    }
-    if (m.override) h += '<button class="btn sm" data-act="clearOverride" data-id="' + m.id + '">取消指定</button>';
-    h += '</div>';   // quickrow（逐局按钮行）
 
-    h += '</div>';   // match-foot
-    }                // !REND_RO
-    h += '</div>';   // match 卡片
+    /* ---- 计时器 ---- */
+    h += '<div class="match-foot noprint' + (openMore[m.id] ? ' open' : '') + '">';
+    h += tmRowHTML(m);
+    h += '</div>';
+
+    h += '</div>';   // mrow-detail
+    h += '</div>';   // match
     return h;
   }
 
@@ -1601,9 +2289,9 @@
       } else {
         h += '<button class="btn sm" data-act="tmStart" data-id="' + m.id + '">继续</button>';
       }
-      h += '<button class="btn sm" data-act="tmAdd" data-id="' + m.id + '" data-min="5">+5 分钟</button>' +
-        '<button class="btn sm" data-act="tmReset" data-id="' + m.id + '">归零</button>' +
-        '<button class="btn sm danger" data-act="tmSettle" data-id="' + m.id + '">按未打完结算</button>';
+      h += '<button class="btn sm lowpr" data-act="tmAdd" data-id="' + m.id + '" data-min="5">+5 分钟</button>' +
+        '<button class="btn sm lowpr" data-act="tmReset" data-id="' + m.id + '">归零</button>' +
+        '<button class="btn sm danger' + (st.expired && !m.decided ? '' : ' lowpr') + '" data-act="tmSettle" data-id="' + m.id + '">按未打完结算</button>';
     } else if (m.result && m.result.unfinished) {
       h += '<button class="btn sm" data-act="tmUndoFinish" data-id="' + m.id + '">撤销未打完</button>';
     }
@@ -1691,6 +2379,7 @@
 
     if (isElim) {
       h += card(esc(stage.name) + ' 名次（按对阵结果）', elimRankTable(T, si));
+      h += ptsBoardHTML();
       return h;
     }
 
@@ -1728,6 +2417,7 @@
       h += card(esc(stage.name) + ' 排名', standingsTable(T, si, gi));
     }
 
+    h += ptsBoardHTML();
     return h;
   }
 
@@ -1757,9 +2447,16 @@
       h += '<div class="notice">本阶段按人数晋级：前 <b>' + cut + '</b> 个名次进入下一阶段，'
         + '不设冠军。下表按淘汰的先后排列（越早出局越靠后）。</div>';
     }
+    var teamElim = E.teamOn(t);
+    if (teamElim) {
+      h += '<div class="hint" style="margin-bottom:8px">团体赛：<b>一桌 = 一场比赛</b>，' +
+        '一场团体赛由若干场对局组成，每场双方各派一名队员（可以换不同的人）；' +
+        '<b>大比分 = 赢下的场数</b>；场内的局分只计入小分。</div>';
+    }
     h += '<table class="compact"><thead><tr>' +
-      '<th class="num">名次</th><th>选手</th><th class="num">场次</th>' +
-      '<th class="num">胜</th><th class="num">负</th><th class="num">赢局-输局</th><th>结果</th>' +
+      '<th class="num">名次</th><th>' + (teamElim ? '队伍' : '选手') + '</th><th class="num">场次</th>' +
+      '<th class="num">胜</th><th class="num">负</th>' +
+      '<th class="num">' + (teamElim ? '赢场-输场' : '赢局-输局') + '</th><th>结果</th>' +
       '</tr></thead><tbody>';
     order.forEach(function (id, i) {
       var s = byId[id] || { name: E.nameOf(t, id), matches: 0, wins: 0, losses: 0, gamesWon: 0, gamesLost: 0 };
@@ -2007,12 +2704,20 @@
       // 小分继承静默生效，排名页不再提示（只说明积分继承比例）
       inhNote = '<div class="hint" style="margin-bottom:8px">本阶段已继承上一阶段<b>积分 ' + U.fmt(rt) + '%</b>。</div>';
     }
-    var h = inhNote + '<table class="compact"><thead><tr>' +
-      '<th class="num">名次</th><th>选手</th><th class="num">积分</th>' +
+    // 团体赛：大比分单位是「场」，个人小局只算小分（v2.0）
+    var teamOn2 = E.teamOn(t);
+    var noteTeam = teamOn2
+      ? '<div class="hint" style="margin-bottom:8px">团体赛：<b>一桌 = 一场比赛</b>，' +
+        '一场团体赛由若干场对局组成，每场双方各派一名队员（可以换不同的人）；' +
+        '<b>大比分 = 赢下的场数</b>；场内的局分只计入「累计小分 / 净小分」这类破同依据。</div>'
+      : '';
+    var h = inhNote + noteTeam + '<table class="compact"><thead><tr>' +
+      '<th class="num">名次</th><th>' + (teamOn2 ? '队伍' : '选手') + '</th><th class="num">积分</th>' +
       (showCarry ? '<th class="num">继承分</th>' : '') +
       '<th class="num">场次</th><th class="num">胜</th><th class="num">平</th><th class="num">负</th>' +
-      '<th class="num">赢局-输局</th><th class="num">净胜局</th>' +
-      '<th class="num">累计小分</th>' +
+      '<th class="num">' + (teamOn2 ? '赢场-输场' : '赢局-输局') + '</th>' +
+      '<th class="num">' + (teamOn2 ? '净胜场' : '净胜局') + '</th>' +
+      '<th class="num">' + (teamOn2 ? '个人小局' : '累计小分') + '</th>' +
       (showCumDiff ? '<th class="num">净小分</th>' : '') +
       (showProg ? '<th class="num">累进分</th>' : '') +
       (showPrev ? '<th class="num">上阶段分</th>' : '') +
@@ -2043,7 +2748,7 @@
       if (!s.active) status.push(s.dropReason || '退赛');
       h += '<tr class="' + (E.isEarlyClinch(stage, s.id) ? 'row-clinch'
         : (E.isEarlyElim(stage, s.id) ? 'row-elim' : '')) + '">' +
-        '<td class="num' + (s.rank === 1 ? ' rank-1' : '') + '">' + s.rank + '</td>' +
+        '<td class="num"><span class="rank-badge' + (s.rank >= 1 && s.rank <= 3 ? ' r' + s.rank : '') + '">' + s.rank + '</span></td>' +
         '<td><b>' + esc(s.name) + '</b></td>' +
         '<td class="num"><b>' + U.fmt(s.points) + '</b></td>' +
         (showCarry ? '<td class="num">' + U.fmt(s.carry) + '</td>' : '') +
@@ -2151,6 +2856,460 @@
   }
 
   /* ================= 主渲染 ================= */
+  /* ================= 视图六：赛季积分 ================= */
+
+  function sfld(label, ctl, hint) {
+    return '<div class="fld"><label>' + label + '</label><div class="fld-ctl">' + ctl +
+      (hint ? '<span class="hint">' + hint + '</span>' : '') + '</div></div>';
+  }
+
+  function seasonStatusTag(status) {
+    if (status === 'finished') return '<span class="tag win">已结束</span>';
+    if (status === 'running') return '<span class="tag draw">进行中</span>';
+    return '<span class="tag">未开始</span>';
+  }
+
+  // 单元短名：取「·」最后一段，避免表头被长赛事名撑爆
+  function unitTail(s) {
+    var p = String(s || '').split('·');
+    return p[p.length - 1].trim() || String(s || '');
+  }
+  function unitShortLabel(u) {
+    if (u.si === null) return unitTail(u.tname);
+    return unitTail(u.tname) + ' · ' + unitTail(u.sname);
+  }
+
+  function seasonListHTML(seasons) {
+    var h = '';
+    h += card('新建赛季',
+      '<div class="row">' +
+      '<input type="text" id="newSeasonName" placeholder="赛季名称，例如 2026 秋季联赛" style="width:300px">' +
+      '<button class="btn primary" data-act="newSeason">+ 新建赛季</button>' +
+      '</div>' +
+      '<div class="hint" style="margin-top:6px">赛季把多场赛事串成一条积分线：每站赛事归入同一个赛季后，' +
+      '按你设定的规则自动累计总分。</div>'
+    );
+
+    var rows = '';
+    seasons.forEach(function (m) {
+      var se = S.getSeason(m.id);
+      var list = S.tournamentsOfSeason(m.id);
+      var tab = se ? E.seasonTable(se, list) : { rows: [] };
+      var lead = (tab.rows && tab.rows[0]) ? tab.rows[0].name : '—';
+      rows += '<tr>' +
+        '<td><b>' + esc(m.name) + '</b></td>' +
+        '<td class="num">' + list.length + '</td>' +
+        '<td class="num">' + (tab.rows ? tab.rows.length : 0) + '</td>' +
+        '<td>' + esc(lead) + '</td>' +
+        '<td class="mono" style="font-size:12px">' + esc(m.createdAt || '') + '</td>' +
+        '<td class="noprint">' +
+        '<button class="btn sm primary" data-act="openSeason" data-id="' + m.id + '">打开</button> ' +
+        '<button class="btn sm" data-act="renameSeason" data-id="' + m.id + '">重命名</button> ' +
+        '<button class="btn sm danger" data-act="delSeason" data-id="' + m.id + '">删除</button>' +
+        '</td></tr>';
+    });
+
+    h += card('已有赛季（' + seasons.length + '）',
+      seasons.length
+        ? '<table class="compact"><thead><tr><th>赛季名称</th><th class="num">站数</th>' +
+          '<th class="num">选手</th><th>当前领跑</th><th>创建时间</th><th class="noprint">操作</th></tr></thead>' +
+          '<tbody>' + rows + '</tbody></table>'
+        : '<div class="notice empty">还没有赛季。取个名字点「新建赛季」，再把赛事归入它就开始了。</div>'
+    );
+    return h;
+  }
+
+  // 一站赛事的积分体系，一句话说清
+  function siteRuleText(t) {
+    var r = (t && t.ptsRule) || null;
+    if (!r || !r.on) return '未启用积分榜 · 不计分';
+    var s = ptsModeName(r.mode) + ' · ' + (r.unit === 'stage' ? '按阶段' : '整站');
+    var n = Object.keys(r.stageOv || {}).length;
+    if (n) s += ' · ' + n + ' 个阶段单独设置';
+    return s;
+  }
+  // 站点行里的短标签，避免把右栏挤爆
+  function siteRuleShort(t) {
+    var r = (t && t.ptsRule) || null;
+    if (!r || !r.on) return '不计分';
+    var m = r.mode === 'win' ? '胜场' : (r.mode === 'adv' ? '晋级' : '名次');
+    return m + '·' + (r.unit === 'stage' ? '阶段' : '整站');
+  }
+
+  function seasonRuleSummary(se, tab, list) {
+    var r = se.rule;
+    var src = (tab && tab.source) || r.source || 'tournament';
+    var h = '';
+    if (src === 'tournament') {
+      h += '<div class="rule-row"><span>计分来源</span><b>各站赛事自己的积分榜</b></div>';
+      h += '<div class="rule-row"><span>赛季负责</span><b>只做加总</b></div>';
+      h += '<div class="rule-row"><span>站点之间</span><b>' +
+        (r.stack ? '累加' : '不叠加（重新起算）') + '</b></div>';
+      if (!r.stack) {
+        h += '<div class="rule-row"><span>重新起算范围</span><b>' +
+          (r.resetScope === 'all' ? '全榜清零' : '只重置参加该站的人') + '</b></div>';
+      }
+      h += '<div class="rule-row"><span>进行中的站</span><b>' +
+        (r.includeRunning ? '先按当前名次计入' : '暂不计分（标待定）') + '</b></div>';
+      var byId = {};
+      (list || []).forEach(function (t) { byId[t.id] = t; });
+      var us = (tab && tab.units) || [];
+      if (us.length) {
+        h += '<div class="hint" style="margin-top:10px">各站积分体系</div>';
+        us.forEach(function (u) {
+          h += '<div class="rule-row"><span>' + esc(u.tname) + '</span>' +
+            '<b style="font-size:12px">' + esc(siteRuleText(byId[u.tid])) + '</b></div>';
+        });
+      }
+      return h;
+    }
+
+    h += '<div class="rule-row"><span>计分单元</span><b>' +
+      (r.unit === 'stage' ? '每站赛事内的每个阶段' : '每站赛事（整站一次）') + '</b></div>';
+    h += '<div class="rule-row"><span>默认方式</span><b>' +
+      (r.mode === 'win' ? '按胜场' : '按名次') + '</b></div>';
+    if (r.mode === 'rank') {
+      var ts2 = ptsTiersOf(r);
+      h += '<div class="rule-row"><span>名次分档</span><b class="mono" style="font-size:12px">' +
+        ts2.map(function (t) {
+          var f = parseInt(t.from, 10) || 1, e = parseInt(t.to, 10) || f;
+          return (f === e ? ('第' + f) : ('第' + f + '~' + e)) + '：' + U.fmt(t.pts);
+        }).join('　') + '</b></div>';
+      h += '<div class="rule-row"><span>之后</span><b class="mono">每名 −' + U.fmt(r.rank.step) +
+        '，最低 ' + U.fmt(r.rank.floor) + '</b></div>';
+    } else {
+      h += '<div class="rule-row"><span>每胜 / 每平</span><b class="mono">+' + U.fmt(r.win.perWin) +
+        ' / +' + U.fmt(r.win.perDraw) + '</b></div>';
+      h += '<div class="rule-row"><span>参赛基础分</span><b class="mono">' + U.fmt(r.win.base) + '</b></div>';
+    }
+    h += '<div class="rule-row"><span>阶段叠加</span><b>' +
+      (r.stack ? '叠加（逐站累加）' : '不叠加（重新起算）') + '</b></div>';
+    if (!r.stack) {
+      h += '<div class="rule-row"><span>重新起算范围</span><b>' +
+        (r.resetScope === 'all' ? '全榜清零' : '只重置进入该单元的人') + '</b></div>';
+    }
+    h += '<div class="rule-row"><span>进行中的站点</span><b>' +
+      (r.includeRunning ? '先按当前排名计入' : '暂不计分（标待定）') + '</b></div>';
+    if (tab && tab.units && tab.units.some(function (u) { return u.mode && u.mode !== r.mode; })) {
+      h += '<div class="rule-row"><span>个别单元</span><b>有自定义（见下方站点）</b></div>';
+    }
+    return h;
+  }
+
+  function seasonRuleForm(se, tab, list) {
+    var r = se.rule;
+    var p = 'rule.';
+    var src = (tab && tab.source) || r.source || 'tournament';
+    var h = '';
+
+    /* ---- 只做加总（推荐）：各站用自己的积分体系 ---- */
+    if (src === 'tournament') {
+      h += '<div class="hint" style="margin-bottom:12px">本赛季<b>只做加总</b>：每站先用它自己的积分榜规则算出该站分数，' +
+        '赛季再把这些分按下面的方式加起来。要改分值请打开对应赛事，在「赛事设置 → 赛事积分榜」里改。</div>';
+      h += '<h4>站点之间的叠加</h4>';
+      h += '<div class="row" style="margin-bottom:8px"><label class="switch">' +
+        '<input type="checkbox" data-sbind="' + p + 'stack"' + (r.stack ? ' checked' : '') + '>' +
+        '<span>与之前的站点叠加（累加）</span></label></div>';
+      h += '<div class="hint" style="margin-bottom:10px">勾选 = 每站的积分都保留、相加；' +
+        '不勾选 = 进入该站时重新起算，之前的分数不保留。</div>';
+      if (!r.stack) {
+        h += sfld('重新起算范围',
+          '<select data-sbind="' + p + 'resetScope">' +
+          '<option value="participants"' + (r.resetScope === 'participants' ? ' selected' : '') + '>只重置参加该站的人（其余人保留原分）</option>' +
+          '<option value="all"' + (r.resetScope === 'all' ? ' selected' : '') + '>全榜清零（没参加的人也归零）</option>' +
+          '</select>');
+      }
+      h += '<div class="row"><label class="switch"><input type="checkbox" data-sbind="' + p + 'includeRunning"' +
+        (r.includeRunning ? ' checked' : '') + '><span>进行中的站点也先按当前排名计入</span></label></div>';
+
+      var units = (tab && tab.units) || [];
+      if (units.length) {
+        h += '<h4>单站叠加方式（可单独覆盖）</h4>';
+        units.forEach(function (u) {
+          var ov = se.rule.overrides[u.key] || {};
+          h += '<div class="unit-row">' +
+            seasonStatusTag(u.status) +
+            '<span class="uname" title="' + esc(u.label) + '">' + esc(u.label) + '</span>' +
+            '<span class="tag">' + esc(u.ptsOn ? (u.siteMode === 'win' ? '按胜场' : '按名次') : '未启用积分') + '</span>' +
+            '<select data-unit-rule="stack" data-key="' + esc(u.key) + '">' +
+            '<option value="">叠加：跟随默认</option>' +
+            '<option value="1"' + (ov.stack === true ? ' selected' : '') + '>叠加</option>' +
+            '<option value="0"' + (ov.stack === false ? ' selected' : '') + '>不叠加</option>' +
+            '</select>' +
+            '</div>';
+        });
+      }
+      h += '<div class="row" style="margin-top:14px">' +
+        '<button class="btn" data-act="seasonSrc" data-src="season">改用赛季统一规则（老口径）</button>' +
+        '<span class="hint">统一规则 = 赛季自己定义一套分值，覆盖各站赛事自己的设置。</span></div>';
+      return h;
+    }
+
+    /* ---- 老口径：赛季统一规则 ---- */
+    h += '<div class="hint" style="margin-bottom:12px">本赛季用<b>赛季统一规则</b>：不管各站赛事自己怎么设，' +
+      '赛季按下面这套分值重新算。若想让各站各算各的，点最下面的「改用各站自己的积分规则」。</div>';
+    h += '<div class="grid2">';
+    h += sfld('计分单元',
+      '<select data-sbind="' + p + 'unit">' +
+      '<option value="tournament"' + (r.unit === 'tournament' ? ' selected' : '') + '>每站赛事算一次分</option>' +
+      '<option value="stage"' + (r.unit === 'stage' ? ' selected' : '') + '>站内每个阶段各算一次</option>' +
+      '</select>');
+    h += sfld('计分方式',
+      '<select data-sbind="' + p + 'mode">' +
+      '<option value="rank"' + (r.mode === 'rank' ? ' selected' : '') + '>按名次</option>' +
+      '<option value="win"' + (r.mode === 'win' ? ' selected' : '') + '>按胜场</option>' +
+      '</select>');
+    h += '</div>';
+
+    if (r.mode === 'rank') {
+      h += '<h4>按名次计分（几个名次一档）</h4>' + ptsRankGridHTML('rule', r, 'data-sbind');
+      var lastTo = 0;
+      ptsTiersOf(r).forEach(function (t) { lastTo = Math.max(lastTo, parseInt(t.to, 10) || parseInt(t.from, 10) || 0); });
+      h += '<div class="grid2">' +
+        sfld('之后每降 1 名扣', '<input type="number" min="0" data-sbind="' + p + 'rank.step" value="' +
+          U.fmt(r.rank.step) + '">', '第 ' + (lastTo + 1) + ' 名起按这个步长递减') +
+        sfld('最低分', '<input type="number" min="0" data-sbind="' + p + 'rank.floor" value="' +
+          U.fmt(r.rank.floor) + '">', '扣到这个分数就不再往下扣') +
+        '</div>';
+    } else {
+      h += '<h4>按胜场计分</h4><div class="grid2">';
+      h += sfld('每胜一场', '<input type="number" data-sbind="' + p + 'win.perWin" value="' + U.fmt(r.win.perWin) + '">');
+      h += sfld('每平一场', '<input type="number" data-sbind="' + p + 'win.perDraw" value="' + U.fmt(r.win.perDraw) + '">');
+      h += sfld('每负一场', '<input type="number" data-sbind="' + p + 'win.perLoss" value="' + U.fmt(r.win.perLoss) + '">');
+      h += sfld('参赛基础分', '<input type="number" data-sbind="' + p + 'win.base" value="' + U.fmt(r.win.base) + '">');
+      h += '</div>';
+    }
+
+    h += '<h4>叠加方式</h4>';
+    h += '<div class="row" style="margin-bottom:8px">' +
+      '<label class="switch"><input type="checkbox" data-sbind="' + p + 'stack"' + (r.stack ? ' checked' : '') + '>' +
+      '<span>与之前的计分单元叠加（累加）</span></label></div>';
+    h += '<div class="hint" style="margin-bottom:10px">勾选 = 每个单元的分都保留、相加；' +
+      '不勾选 = 进入该单元的选手重新起算，之前的分数不保留。</div>';
+    if (!r.stack) {
+      h += sfld('重新起算范围',
+        '<select data-sbind="' + p + 'resetScope">' +
+        '<option value="participants"' + (r.resetScope === 'participants' ? ' selected' : '') + '>只重置进入该单元的人（其余人保留原分）</option>' +
+        '<option value="all"' + (r.resetScope === 'all' ? ' selected' : '') + '>全榜清零（没参加的人也归零）</option>' +
+        '</select>');
+    }
+    h += '<div class="row"><label class="switch"><input type="checkbox" data-sbind="' + p + 'includeRunning"' +
+      (r.includeRunning ? ' checked' : '') + '>' +
+      '<span>进行中的站点也先按当前排名计入</span></label></div>';
+
+    if (tab && tab.units.length) {
+      h += '<h4>单个单元（可单独覆盖）</h4>';
+      tab.units.forEach(function (u) {
+        var ov = se.rule.overrides[u.key] || {};
+        h += '<div class="unit-row">' +
+          seasonStatusTag(u.status) +
+          '<span class="uname" title="' + esc(u.label) + '">' + esc(u.label) + '</span>' +
+          '<select data-unit-rule="mode" data-key="' + esc(u.key) + '">' +
+          '<option value="">方式：跟随默认</option>' +
+          '<option value="rank"' + (ov.mode === 'rank' ? ' selected' : '') + '>按名次</option>' +
+          '<option value="win"' + (ov.mode === 'win' ? ' selected' : '') + '>按胜场</option>' +
+          '</select>' +
+          '<select data-unit-rule="stack" data-key="' + esc(u.key) + '">' +
+          '<option value="">叠加：跟随默认</option>' +
+          '<option value="1"' + (ov.stack === true ? ' selected' : '') + '>叠加</option>' +
+          '<option value="0"' + (ov.stack === false ? ' selected' : '') + '>不叠加</option>' +
+          '</select>' +
+          '</div>';
+      });
+    }
+    h += '<div class="row" style="margin-top:14px">' +
+      '<button class="btn primary" data-act="seasonSrc" data-src="tournament">改用各站自己的积分规则</button>' +
+      '<span class="hint">各站分值在赛事自己的「赛事积分榜」里设置，赛季只加总。</span></div>';
+    return h;
+  }
+
+  function renderSeason() {
+    var seasons = S.loadSeasons();
+    var se = curSeasonId ? S.getSeason(curSeasonId) : null;
+    if (curSeasonId && !se) { curSeasonId = ''; se = null; }
+    if (!se) return seasonListHTML(seasons);
+
+    var list = S.tournamentsOfSeason(se.id);
+    var tab = E.seasonTable(se, list);
+    var counted = tab.units.filter(function (u) { return u.counted; });
+    var live = tab.units.filter(function (u) { return !u.counted; });
+    var bySite = (tab.source !== 'season');
+
+    var h = '<div class="page-h"><div><h1>' + esc(se.name) + '</h1><p>' +
+      list.length + ' 站赛事 · ' + tab.rows.length + ' 名选手 · ' +
+      (bySite
+        ? '各站积分加总'
+        : ((se.rule.unit === 'stage' ? '按阶段计分' : '按站计分') +
+          (se.rule.mode === 'win' ? ' · 按胜场' : ' · 按名次'))) +
+      (se.rule.stack ? ' · 累加' : ' · 不叠加') + '</p></div></div>';
+
+    /* ---- 顶部操作 ---- */
+    h += '<div class="row" style="margin-bottom:12px">' +
+      '<button class="btn" data-act="seasonBack">← 赛季列表</button>' +
+      '<span class="spacer"></span>' +
+      '<button class="btn' + (seasonOpen ? ' primary' : '') + '" data-act="seasonRules">' +
+      (seasonOpen ? '收起积分规则' : '积分规则') + '</button>' +
+      '<button class="btn" data-act="seasonCSV">导出积分榜 CSV</button>' +
+      '<button class="btn" data-act="seasonPrint">打印积分榜</button>' +
+      '</div>';
+
+    /* ---- KPI ---- */
+    h += '<div class="kpi">' +
+      '<div class="k"><b>' + counted.length + '</b><span>已计入的单元</span></div>' +
+      '<div class="k"><b>' + tab.rows.length + '</b><span>参赛选手</span></div>' +
+      '<div class="k"><b>' + (bySite ? '各站自定' : '赛季统一') + '</b><span>计分来源</span></div>' +
+      '<div class="k"><b>' + (se.rule.stack ? '叠加' : '不叠加') + '</b><span>单元之间</span></div>' +
+      '</div>';
+
+    h += '<div class="split"><div>';
+
+    /* ---- 积分榜（只列已计入的单元；未计分的在下方提示） ---- */
+    var shown = tab.units.filter(function (u) { return u.counted; });
+    var stopsTitle = (bySite || se.rule.unit !== 'stage') ? '站数' : '阶段数';
+    var head = '<th style="width:52px">名次</th><th style="min-width:130px">选手</th>' +
+      '<th class="unit" style="width:66px">总分</th><th class="unit" style="width:56px">' + stopsTitle + '</th>' +
+      '<th class="unit" style="width:70px">最好</th>';
+    shown.forEach(function (u) {
+      head += '<th class="unit" title="' + esc(u.label) + '">' + esc(unitShortLabel(u)) + '</th>';
+    });
+    var body = '';
+    tab.rows.forEach(function (r) {
+      body += '<tr' + (r.pos === 1 ? ' class="lead"' : '') + '>' +
+        '<td><span class="rank-badge' + (r.pos >= 1 && r.pos <= 3 ? ' r' + r.pos : '') + '">' + r.pos + '</span></td>' +
+        '<td><b>' + esc(r.name) + '</b></td>' +
+        '<td class="unit"><b>' + U.fmt(r.total) + '</b></td>' +
+        '<td class="unit">' + r.stops + '</td>' +
+        '<td class="unit">' + (r.best ? ('第 ' + r.best) : '—') + '</td>';
+      shown.forEach(function (u) {
+        var x = r.units[u.key];
+        body += '<td class="unit" title="' + esc(u.label) + '">' + (x ? U.fmt(x.pts) : '—') + '</td>';
+      });
+      body += '</tr>';
+    });
+
+    h += '<section class="card"><h3>赛季积分榜' +
+      (shown.length > 1 ? '<span class="tag" style="margin-left:8px">' + shown.length + ' 个计分单元</span>' : '') +
+      '</h3>';
+    h += tab.rows.length
+      ? '<div class="tbl-wrap"><table class="compact season-tbl"><thead><tr>' + head + '</tr></thead><tbody>' +
+        body + '</tbody></table></div>'
+      : '<div class="notice empty">还没有可计分的比赛。把赛事归入这个赛季，并在赛事里打完至少一个阶段。</div>';
+    if (tab.warnings.length) {
+      h += '<div class="notice inv" style="margin:12px 0 0">' +
+        tab.warnings.map(esc).join('；') + '</div>';
+    }
+    if (live.length) {
+      h += '<div class="notice" style="margin:12px 0 0">有 <b>' + live.length +
+        '</b> 个单元还在进行中，<b>暂不计分</b>；打完并结束该阶段后会自动进榜。</div>';
+    }
+    h += '</section>';
+
+    /* ---- 规则（编辑态放在主列，便于宽屏阅读） ---- */
+    if (seasonOpen) {
+      h += '<section class="card"><h3>积分规则</h3>' + seasonRuleForm(se, tab, list) +
+        '<div class="row" style="margin-top:14px">' +
+        '<button class="btn primary" data-act="seasonRules">完成</button>' +
+        '<span class="hint">改动即时保存并重算积分榜。</span></div></section>';
+    }
+
+    h += '</div><div>';
+
+    /* ---- 右列：规则摘要 ---- */
+    if (!seasonOpen) {
+      h += '<section class="card"><h3>计分规则</h3>' + seasonRuleSummary(se, tab, list) + '</section>';
+    }
+
+    /* ---- 右列：站点 ---- */
+    var notIn = S.loadIndex().filter(function (m) { return m.id !== ''; }).map(function (m) { return S.get(m.id); })
+      .filter(function (t) { return t && t.seasonId !== se.id; });
+
+    h += '<section class="card"><h3>站点（' + list.length + '）</h3>';
+    if (list.length) {
+      list.forEach(function (t) {
+        var u = tab.units.filter(function (x) { return x.tid === t.id; })[0];
+        // 老口径（赛季统一规则）下赛事自己的积分榜不参与计算，就不显示这条说明，免得起误导
+        var ptsLine = bySite
+          ? ('<span class="hint">' + esc(siteRuleText(t)) + '</span>')
+          : '';
+        h += '<div class="unit-row">' +
+          seasonStatusTag(u ? u.status : (t.status === 'finished' ? 'finished' : 'running')) +
+          '<span class="uname" title="' + esc(t.name) + '">' + esc(t.name) + '</span>' +
+          '<button class="btn sm ghost" data-act="seasonRemove" data-id="' + t.id + '">移出</button>' +
+          ptsLine +
+          '</div>';
+      });
+    } else {
+      h += '<div class="hint" style="padding:6px 0">还没有赛事归入本赛季。</div>';
+    }
+    if (notIn.length) {
+      h += '<div class="row" style="margin-top:10px">' +
+        '<select id="seasonAddT" style="flex:1;min-width:0">' +
+        notIn.map(function (t) {
+          return '<option value="' + t.id + '">' + esc(t.name) + '</option>';
+        }).join('') +
+        '</select>' +
+        '<button class="btn" data-act="seasonAdd">加入</button></div>';
+    }
+    h += '</section>';
+
+    /* ---- 右列：说明 ---- */
+    h += '<section class="card"><h3>口径说明</h3>' +
+      '<div class="hint" style="line-height:1.7">' +
+      '· 选手按<b>姓名</b>跨赛事识别（忽略大小写与多余空格），同名会被视为同一人。<br>' +
+      '· 名次取该单元结束时（或整站结束时）的最终排名，并列同名次。<br>' +
+      (bySite
+        ? '· 每站的分值来自该赛事<b>自己的积分榜</b>（在赛事设置里改），赛季只做加总；没有启用积分榜的赛事不计分。<br>'
+        : '· 本赛季走<b>赛季统一规则</b>：下面这套分值会覆盖各站赛事自己的设置。<br>') +
+      '· 站点下方的小字表示该站的计分方式与是否启用。' +
+      '</div></section>';
+
+    h += '</div></div>';
+    return h;
+  }
+
+  function seasonCSVText(se, tab) {
+    function cell(v) {
+      var s = String(v === null || v === undefined ? '' : v);
+      return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+    var lines = [];
+    var head = ['名次', '选手', '总分', '计分单元数', '最好名次'].concat(tab.units.map(function (u) { return u.label; }));
+    lines.push(head.map(cell).join(','));
+    tab.rows.forEach(function (r) {
+      var row = [r.pos, r.name];
+      if (advOn) row.push(E.rankAdv(rule, r.best || r.pos) ? '晋级' : '');
+      row.push(U.fmt(r.total), r.stops, r.best || '');
+      tab.units.forEach(function (u) {
+        var x = r.units[u.key];
+        row.push(x ? U.fmt(x.pts) : '');
+      });
+      lines.push(row.map(cell).join(','));
+    });
+    return '\ufeff' + lines.join('\r\n');
+  }
+
+  function seasonHTMLReport(se, tab) {
+    var h = '<h1 style="font-size:20px;margin:0 0 6px">' + esc(se.name) + ' · 赛季积分榜</h1>';
+    h += '<div style="font-size:12px;margin-bottom:12px">生成时间：' + esc(U.now()) +
+      ' · 计分方式：' + (tab.source !== 'season' ? '各站积分加总'
+        : (se.rule.mode === 'win' ? '按胜场' : '按名次')) +
+      ' · ' + (se.rule.stack ? '逐单元累加' : '不叠加（重新起算）') + '</div>';
+    h += '<table><thead><tr><th>名次</th><th>选手</th><th>总分</th><th>场数</th><th>最好</th>';
+    tab.units.forEach(function (u) { h += '<th>' + esc(u.label) + '</th>'; });
+    h += '</tr></thead><tbody>';
+    tab.rows.forEach(function (r) {
+      h += '<tr><td>' + r.pos + '</td><td>' + esc(r.name) + '</td><td>' + U.fmt(r.total) +
+        '</td><td>' + r.stops + '</td><td>' + (r.best || '') + '</td>';
+      tab.units.forEach(function (u) {
+        var x = r.units[u.key];
+        h += '<td>' + (x ? U.fmt(x.pts) : '') + '</td>';
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table>';
+    return h;
+  }
+
   function render() {
     TMS.current = T;
 
@@ -2165,11 +3324,11 @@
       }
     }
 
-    if (!T) curView = 'list';
+    if (!T && curView !== 'season') curView = 'list';
 
     document.querySelectorAll('.tab').forEach(function (t) {
       var v = t.getAttribute('data-view');
-      var disabled = (!T && v !== 'list');
+      var disabled = (!T && v !== 'list' && v !== 'season');
       t.disabled = disabled;
       t.classList.toggle('active', v === curView);
     });
@@ -2178,7 +3337,7 @@
     var map = {
       list: renderList,
       setup: renderSetup, players: renderPlayers, matches: renderMatches,
-      standing: renderStanding, export: renderExport
+      standing: renderStanding, export: renderExport, season: renderSeason
     };
     var el = document.getElementById('view-' + curView);
     if (el) { el.style.display = ''; el.innerHTML = map[curView](); }
@@ -2268,7 +3427,9 @@
         var added = 0;
         names.forEach(function (n) {
           if (!T.players.some(function (p) { return p.name === n; })) {
-            T.players.push(M.createPlayer(n, T.players.length + 1));
+            var np = M.createPlayer(n, T.players.length + 1);
+            if (E.teamOn(T)) { np.isTeam = true; np.members = []; }
+            T.players.push(np);
             added++;
           }
         });
@@ -2304,11 +3465,40 @@
         });
       }, '清空');
     },
+    /* ---- 团体赛：队伍里的队员 ---- */
+    addMember: function (el) {
+      var p = playerOf(el.getAttribute('data-id'));
+      if (!p.name) return;
+      if (!Array.isArray(p.members)) p.members = [];
+      askInput('给「' + p.name + '」加队员', '', function (n) {
+        if (n === null || !n.trim()) return;
+        var name = n.trim();
+        if (p.members.some(function (x) { return x.name === name; })) { toast('这个队员已经加过了', true); return; }
+        mutate(function () {
+          p.members.push({ id: U.uid('mb'), name: name, seed: p.members.length + 1 });
+          p.isTeam = true;
+          return { ok: true, msg: '已添加队员：' + name };
+        });
+      }, '输入队员姓名后回车，可连续添加', '添加');
+    },
+    delMember: function (el) {
+      var p = playerOf(el.getAttribute('data-id'));
+      var mid = el.getAttribute('data-mid');
+      if (!p.members) return;
+      var mb = p.members.filter(function (x) { return x.id === mid; })[0];
+      if (!mb) return;
+      mutate(function () {
+        p.members = p.members.filter(function (x) { return x.id !== mid; });
+        return { ok: true, msg: '已移除队员：' + mb.name };
+      });
+    },
     addPlayer: function () {
       askInput('添加选手', '', function (n) {
         if (n === null || !n.trim()) return;
         mutate(function () {
-          T.players.push(M.createPlayer(n.trim(), T.players.length + 1));
+          var np = M.createPlayer(n.trim(), T.players.length + 1);
+          if (E.teamOn(T)) { np.isTeam = true; np.members = []; }
+          T.players.push(np);
           return { ok: true, msg: '已添加：' + n.trim() };
         });
       }, '输入姓名后回车', '添加');
@@ -2522,11 +3712,18 @@
         }
 
         // 按 A、B 交错重建局面（只记胜负，不记每局小分）
-        m.games = [];
+        // 多回合时只重建「当前这一回合」，别的回合保持不动
+        var multiSet = E.setCount(fmt) > 1;
+        var curS = multiSet ? E.curSet(m, fmt, stage.tie) : 0;
+        if (multiSet) {
+          m.games = (m.games || []).filter(function (g) { return (parseInt(g.s, 10) || 0) !== curS; });
+        } else {
+          m.games = [];
+        }
         var maxn = Math.max(a, b), k;
         for (k = 0; k < maxn; k++) {
-          if (k < a) m.games.push({ w: 'A', a: null, b: null });
-          if (k < b) m.games.push({ w: 'B', a: null, b: null });
+          if (k < a) m.games.push({ w: 'A', a: null, b: null, s: curS });
+          if (k < b) m.games.push({ w: 'B', a: null, b: null, s: curS });
         }
         m.override = null;
         E.evaluate(m, fmt, stage.tie);
@@ -2561,7 +3758,7 @@
         var stage = T.stages[T.currentStage];
         var fmt = E.fmtOfMatch(T, stage, m);
         if (!E.canAddGame(m, fmt, stage.tie)) return { ok: false, msg: '本场已结束，无法继续录入' };
-        var g = { w: w, a: null, b: null };
+        var g = { w: w, a: null, b: null, s: E.setCount(fmt) > 1 ? E.curSet(m, fmt, stage.tie) : 0 };
         if (fmt.recordScore) {
           var ia = document.getElementById('sa_' + m.id), ib = document.getElementById('sb_' + m.id);
           if (ia && ia.value !== '') g.a = parseFloat(ia.value);
@@ -2570,6 +3767,112 @@
         m.games.push(g);
         E.evaluate(m, fmt, stage.tie);
         return { ok: true };
+      });
+    },
+    /* ---- 团体赛：记录一场对局（双方上场队员 + 这一场的局分 + 谁赢） ---- */
+    /* ---- 团体赛：录一场对局的成绩（必须先选定这一场双方上场的队员） ---- */
+    addBoard: function (el) {
+      var id = el.getAttribute('data-id'), w = el.getAttribute('data-w');
+      var si = parseInt(el.getAttribute('data-s'), 10) || 0;
+      mutate(function () {
+        var m = findMatch(id);
+        if (!m) return { ok: false, msg: '未找到该场比赛' };
+        var stage = T.stages[T.currentStage];
+        var fmt = E.fmtOfMatch(T, stage, m);
+        if (!E.canAddGame(m, fmt, stage.tie)) return { ok: false, msg: '本场已结束，无法继续录入' };
+        if (E.teamGameAt(m, si)) return { ok: false, msg: '第 ' + (si + 1) + ' 场已经录过了' };
+        var cfg = E.teamOf(T);
+
+        /* 先决定人，再录成绩；nvn 是同时进行的，必须整场对阵都排好 */
+        if (cfg.mode === 'nvn' && !E.teamLineupReady(T, m)) {
+          return {
+            ok: false,
+            msg: 'nvn 同时进行：先把整场 ' + E.teamTableTotal(T, m) + ' 场的上场队员都排好，才能录成绩'
+          };
+        }
+        var ea = document.getElementById('tsa_' + m.id + '_' + si);
+        var eb = document.getElementById('tsb_' + m.id + '_' + si);
+        var pa = ea ? ea.value : '', pb = eb ? eb.value : '';
+        if (!pa || !pb) {
+          return { ok: false, msg: '先选第 ' + (si + 1) + ' 场双方上场的队员（队伍还没加队员？去「选手管理」里加）' };
+        }
+        // 出场资格：征服赢过的不能再上、KOF 输过的不能再上、nvn 一个人一场只能上一次
+        if (!E.teamCanField(T, m, 'A', pa, si)) {
+          return { ok: false, msg: '这名队员这场不能再上了（征服赢过要换人 / nvn 一人只能打一场）' };
+        }
+        if (!E.teamCanField(T, m, 'B', pb, si)) {
+          return { ok: false, msg: '这名队员这场不能再上了（征服赢过要换人 / nvn 一人只能打一场）' };
+        }
+        var ga = document.getElementById('tg_' + m.id + '_' + si + '_a');
+        var gb = document.getElementById('tg_' + m.id + '_' + si + '_b');
+        var a = ga && ga.value !== '' ? parseFloat(ga.value) : null;
+        var b = gb && gb.value !== '' ? parseFloat(gb.value) : null;
+        var bf = E.boardFmtOf(T, stage);
+        var cap = bf.winNeeded > 0 ? bf.winNeeded : bf.gamesPerMatch;
+        if (a !== null && (isNaN(a) || a < 0 || a > cap)) return { ok: false, msg: '这一场的局分上限是 ' + cap + ' 局' };
+        if (b !== null && (isNaN(b) || b < 0 || b > cap)) return { ok: false, msg: '这一场的局分上限是 ' + cap + ' 局' };
+
+        E.teamSetSlot(m, si, pa, pb);       // 把这次选的人记进排阵
+        var g = { s: si, w: w, pa: pa, pb: pb };
+        if (a !== null) g.a = a;
+        if (b !== null) g.b = b;
+        m.games.push(g);
+        m.games.sort(function (x, y) { return (parseInt(x.s, 10) || 0) - (parseInt(y.s, 10) || 0); });
+        E.evaluate(m, fmt, stage.tie);
+        var r = m.result || {};
+        return {
+          ok: true,
+          msg: '第 ' + (si + 1) + ' 场：' + memberName(w === 'B' ? m.playerB : m.playerA, w === 'B' ? pb : pa) +
+            (w === 'D' ? ' 打平' : ' 赢下这一场') + '（大比分 ' + (r.gamesA || 0) + ' : ' + (r.gamesB || 0) + '）' +
+            (m.decided ? (r.winner ? '　' + nameOf(r.winner === 'A' ? m.playerA : m.playerB) + ' 获胜' : '　平局') : '')
+        };
+      });
+    },
+    /* ---- 团体赛：撤销某一场的成绩 ---- */
+    undoBoard: function (el) {
+      var id = el.getAttribute('data-id');
+      var si = parseInt(el.getAttribute('data-s'), 10) || 0;
+      mutate(function () {
+        var m = findMatch(id);
+        if (!m) return { ok: false, msg: '未找到该场比赛' };
+        var idx = -1;
+        (m.games || []).forEach(function (g, i) {
+          if ((parseInt(g.s, 10) || 0) === si) idx = i;
+        });
+        if (idx < 0) return { ok: false, msg: '第 ' + (si + 1) + ' 场还没有成绩' };
+        m.games.splice(idx, 1);
+        m.override = null;
+        var stage = T.stages[T.currentStage];
+        E.evaluate(m, E.fmtOfMatch(T, stage, m), stage.tie);
+        return { ok: true, msg: '已撤销第 ' + (si + 1) + ' 场的成绩（对阵还留着，可以直接重录）' };
+      });
+    },
+    /* ---- 团体赛：按名单顺序把整场对阵排好 ---- */
+    autoLineup: function (el) {
+      var id = el.getAttribute('data-id');
+      mutate(function () {
+        var m = findMatch(id);
+        if (!m) return { ok: false, msg: '未找到该场比赛' };
+        var stage = T.stages[T.currentStage];
+        if (!E.teamMembersOf(T, m, 'A').length || !E.teamMembersOf(T, m, 'B').length) {
+          return { ok: false, msg: '有队伍还没加队员：先去「② 选手管理」里给队伍加队员' };
+        }
+        E.teamAutoLineup(T, m);
+        E.evaluate(m, E.fmtOfMatch(T, stage, m), stage.tie);
+        return { ok: true, msg: '已按名单顺序排好整场对阵' };
+      });
+    },
+    /* ---- 团体赛：清空还没打的那些场次的对阵 ---- */
+    clearLineup: function (el) {
+      var id = el.getAttribute('data-id');
+      mutate(function () {
+        var m = findMatch(id);
+        if (!m) return { ok: false, msg: '未找到该场比赛' };
+        (m.slots || []).forEach(function (sl) {
+          if (E.teamGameAt(m, parseInt(sl.s, 10) || 0)) return;
+          sl.pa = ''; sl.pb = '';
+        });
+        return { ok: true, msg: '已清空未打完场次的对阵' };
       });
     },
     undoGame: function (el) {
@@ -2896,6 +4199,237 @@
 
   /* 导出动作 */
   function extendActs() {
+    /* 对阵卡「录入比分 / 收起」：展开长行卡片的明细区（不影响任何按钮的功能） */
+    acts.toggleMore = function (el) {
+      var id = el && el.getAttribute('data-id');
+      if (!id) return;
+      openMore[id] = !openMore[id];
+      var open = !!openMore[id];
+      var card = el.closest ? el.closest('.match') : null;
+      if (card) {
+        card.classList.toggle('open', open);
+        var foot = card.querySelector('.match-foot');
+        if (foot) foot.classList.toggle('open', open);
+      }
+      var decided = (el.getAttribute('data-decided') === '1');
+      el.textContent = decided ? '查看' : (open ? '收起' : '录入比分');
+    };
+
+    /* ---------- 赛季 ---------- */
+    acts.newSeason = function () {
+      var el = document.getElementById('newSeasonName');
+      var name = (el && el.value.trim()) || '新赛季';
+      var se = M.defaultSeason(name);
+      S.putSeason(se);
+      curSeasonId = se.id;
+      seasonOpen = false;
+      curView = 'season';
+      render();
+      toast('已创建赛季：' + name);
+    };
+    acts.openSeason = function (el) {
+      curSeasonId = el.getAttribute('data-id') || '';
+      seasonOpen = false;
+      curView = 'season';
+      render();
+    };
+    acts.seasonBack = function () {
+      curSeasonId = '';
+      seasonOpen = false;
+      render();
+    };
+    acts.renameSeason = function (el) {
+      var se = S.getSeason(el.getAttribute('data-id'));
+      if (!se) return;
+      askInput('重命名赛季', se.name, function (v) {
+        if (!v) return;
+        se.name = v;
+        S.putSeason(se);
+        render();
+        toast('已重命名');
+      });
+    };
+    acts.delSeason = function (el) {
+      var id = el.getAttribute('data-id');
+      var se = S.getSeason(id);
+      if (!se) return;
+      ask('删除赛季', '确定删除「' + se.name + '」吗？赛事本身不会被删除，只是不再属于任何赛季。', function () {
+        S.delSeason(id);
+        if (curSeasonId === id) curSeasonId = '';
+        render();
+        toast('已删除赛季');
+      }, '删除');
+    };
+    acts.seasonRules = function () { seasonOpen = !seasonOpen; render(); };
+    acts.seasonAdd = function () {
+      var sel = document.getElementById('seasonAddT');
+      if (!sel || !sel.value) return;
+      var t = S.get(sel.value);
+      if (!t) return;
+      t.seasonId = curSeasonId;
+      S.put(t);
+      render();
+      toast('已加入赛季');
+    };
+    acts.seasonRemove = function (el) {
+      var t = S.get(el.getAttribute('data-id'));
+      if (!t) return;
+      t.seasonId = null;
+      S.put(t);
+      render();
+      toast('已移出赛季');
+    };
+    acts.seasonCSV = function () {
+      var se = S.getSeason(curSeasonId);
+      if (!se) return;
+      var list = S.tournamentsOfSeason(se.id);
+      var tab = E.seasonTable(se, list);
+      U.saveFile(se.name + ' 积分榜.csv', seasonCSVText(se, tab), 'text/csv;charset=utf-8', exDone);
+    };
+    acts.seasonPrint = function () {
+      var se = S.getSeason(curSeasonId);
+      if (!se) return;
+      var list = S.tournamentsOfSeason(se.id);
+      var tab = E.seasonTable(se, list);
+      X.printHTML(seasonHTMLReport(se, tab), exDone);
+    };
+
+    /* ---------- 赛事积分榜 ---------- */
+    // 根据 data-prefix 决定改谁：'rule...' = 当前赛季，其它 = 当前赛事
+    function ptsOwner(prefix) {
+      if (String(prefix || '').indexOf('rule') === 0) {
+        var se = curSeasonId ? S.getSeason(curSeasonId) : null;
+        return se ? { obj: se, isSeason: true } : null;
+      }
+      return T ? { obj: T, isSeason: false } : null;
+    }
+    function ptsCommit(owner, msg) {
+      if (owner.isSeason) S.putSeason(owner.obj); else save();
+      render();
+      if (msg) toast(msg);
+    }
+
+    // 追加一档：默认接在最后一档后面，宽度沿用上一档，分数按步长递减
+    acts.ptsTierAdd = function (el) {
+      var prefix = el.getAttribute('data-prefix') || 'ptsRule';
+      var owner = ptsOwner(prefix);
+      if (!owner) return;
+      var rule = getPath(owner.obj, prefix);
+      if (!rule || !rule.rank) return;
+      if (!Array.isArray(rule.rank.tiers) || !rule.rank.tiers.length) {
+        rule.rank.tiers = ptsTiersOf(rule).map(function (t) { return Object.assign({}, t); });
+      }
+      var tiers = rule.rank.tiers;
+      var last = tiers[tiers.length - 1] || { from: 1, to: 1, pts: 100 };
+      var lastTo = parseInt(last.to, 10) || parseInt(last.from, 10) || 1;
+      var width = Math.max(1, (parseInt(last.to, 10) || 1) - (parseInt(last.from, 10) || 1) + 1);
+      var step = parseFloat(rule.rank.step) || 0;
+      var floor = parseFloat(rule.rank.floor) || 0;
+      var from = lastTo + 1;
+      tiers.push({
+        from: from, to: from + width - 1,
+        pts: Math.max(floor, (parseFloat(last.pts) || 0) - width * step), adv: false
+      });
+      ptsCommit(owner, '已加一档');
+    };
+    // 删除某一档
+    acts.ptsTierDel = function (el) {
+      var prefix = el.getAttribute('data-prefix') || 'ptsRule';
+      var i = parseInt(el.getAttribute('data-i'), 10);
+      var owner = ptsOwner(prefix);
+      if (!owner || !(i >= 0)) return;
+      var rule = getPath(owner.obj, prefix);
+      if (!rule || !rule.rank || !Array.isArray(rule.rank.tiers)) return;
+      if (rule.rank.tiers.length <= 1) { toast('至少保留一档', true); return; }
+      rule.rank.tiers.splice(i, 1);
+      ptsCommit(owner, '已删除一档');
+    };
+    // 让最后一档一直覆盖到第 N 名
+    acts.ptsFill = function (el) {
+      var prefix = el.getAttribute('data-prefix') || 'ptsRule';
+      var owner = ptsOwner(prefix);
+      if (!owner) return;
+      var rule = getPath(owner.obj, prefix);
+      if (!rule || !rule.rank) return;
+      askInput('最后一档延伸到第几名', '32', function (v) {
+        if (v === null) return;
+        var n = parseInt(v, 10);
+        if (!(n >= 1)) { toast('请输入 1 以上的整数', true); return; }
+        if (!Array.isArray(rule.rank.tiers) || !rule.rank.tiers.length) {
+          rule.rank.tiers = ptsTiersOf(rule).map(function (t) { return Object.assign({}, t); });
+        }
+        var last = rule.rank.tiers[rule.rank.tiers.length - 1];
+        var from = parseInt(last.from, 10) || 1;
+        if (n < from) { toast('要大于第 ' + from + ' 名', true); return; }
+        last.to = n;
+        ptsCommit(owner, '最后一档已覆盖到第 ' + n + ' 名');
+      }, '这一段名次同分，之后的按步长递减', '延伸');
+    };
+    // 兼容旧按钮：等同「加一档」
+    acts.ptsMore = acts.ptsTierAdd;
+    acts.ptsSpread = acts.ptsTierAdd;
+
+    // 给某个阶段单独一套积分规则（复制当前赛事规则作为起点）
+    acts.ptsStageEdit = function (el) {
+      if (!T) return;
+      var si = parseInt(el.getAttribute('data-i'), 10);
+      if (!(si >= 0)) return;
+      var ov = (T.ptsRule.stageOv || {})[String(si)];
+      if (ptsStageOpen === si && ov) { ptsStageOpen = -1; render(); return; }
+      if (!ov) {
+        mutate(function () {
+          var c = U.clone(T.ptsRule);
+          delete c.stageOv;
+          c.on = true;
+          T.ptsRule.stageOv = T.ptsRule.stageOv || {};
+          T.ptsRule.stageOv[String(si)] = c;
+          return { ok: true };
+        });
+      }
+      ptsStageOpen = si;
+      render();
+    };
+    acts.ptsStageReset = function (el) {
+      if (!T) return;
+      var si = parseInt(el.getAttribute('data-i'), 10);
+      mutate(function () {
+        delete T.ptsRule.stageOv[String(si)];
+        if (ptsStageOpen === si) ptsStageOpen = -1;
+        return { ok: true, msg: '已恢复跟随赛事默认' };
+      });
+    };
+    acts.ptsCSV = function () {
+      if (!T) return;
+      var tp = E.tournamentPoints(T);
+      if (!tp.on) { toast('本赛事还没有启用积分榜', true); return; }
+      U.saveFile(T.name + '_积分榜.csv', ptsCSVText(tp), 'text/csv;charset=utf-8', function (r) {
+        if (!r || r.canceled) return;
+        toast(r.msg || (r.ok ? '已导出积分榜' : '导出失败'), r.ok === false);
+      });
+    };
+
+    /* ---------- 赛季计分来源切换 ---------- */
+    acts.seasonSrc = function (el) {
+      var se = curSeasonId ? S.getSeason(curSeasonId) : null;
+      if (!se) return;
+      var target = el.getAttribute('data-src');
+      if (target === 'tournament') {
+        se.rule.source = 'tournament';
+        S.putSeason(se);
+        render();
+        toast('已改用各站自己的积分规则，赛季只做加总');
+        return;
+      }
+      ask('改用赛季统一规则',
+        '切换后赛季会按自己的一套分值重算，各站赛事自己的积分榜设置将被忽略。确定吗？',
+        function (yes) {
+          if (!yes) return;
+          se.rule.source = 'season';
+          S.putSeason(se);
+          render();
+          toast('已改用赛季统一规则');
+        }, '切换');
+    };
     function exDone(r) {
       if (!r || r.canceled) return;
       toast(r.msg || (r.ok ? '导出完成' : '导出失败'), r.ok === false);
@@ -3061,9 +4595,79 @@
     });
 
     document.addEventListener('change', function (e) {
+      /* ---- 赛季规则字段 ---- */
+      var seEl = e.target.closest('[data-sbind]');
+      if (seEl) {
+        if (!curSeasonId) return;
+        var se0 = S.getSeason(curSeasonId);
+        if (!se0) return;
+        var sp = seEl.getAttribute('data-sbind');
+        // 名次档位清空 = 取消该档（改回「按步长递减」），不能写成 0 分
+        if (seEl.type === 'number' && seEl.value === '' && /(^|\.)rank\.top\.\d+$/.test(sp)) {
+          var spParts = sp.split('.');
+          var spOwner = getPath(se0, spParts.slice(0, -1).join('.'));
+          if (spOwner) delete spOwner[spParts[spParts.length - 1]];
+          S.putSeason(se0);
+          render();
+          return;
+        }
+        var sv = seEl.type === 'checkbox' ? seEl.checked
+          : (seEl.type === 'number' ? (parseFloat(seEl.value) || 0) : seEl.value);
+        setPath(se0, sp, sv);
+        S.putSeason(se0);
+        render();
+        return;
+      }
+      /* ---- 单元级覆盖（某站单独设方式 / 叠加） ---- */
+      var urEl = e.target.closest('[data-unit-rule]');
+      if (urEl) {
+        if (!curSeasonId) return;
+        var se1 = S.getSeason(curSeasonId);
+        if (!se1) return;
+        var uKey = urEl.getAttribute('data-key');
+        var uFld = urEl.getAttribute('data-unit-rule');
+        var uVal = urEl.value;
+        var ov = se1.rule.overrides[uKey] || (se1.rule.overrides[uKey] = {});
+        if (uFld === 'mode') {
+          if (uVal) ov.mode = uVal; else delete ov.mode;
+        } else if (uFld === 'stack') {
+          if (uVal === '1') ov.stack = true;
+          else if (uVal === '0') ov.stack = false;
+          else delete ov.stack;
+        }
+        if (!Object.keys(ov).length) delete se1.rule.overrides[uKey];
+        S.putSeason(se1);
+        render();
+        return;
+      }
+      /* ---- 赛事归属哪个赛季 ---- */
+      var tsEl = e.target.closest('[data-season-t]');
+      if (tsEl) {
+        var tidS = tsEl.getAttribute('data-season-t');
+        var ttS = S.get(tidS);
+        if (ttS) {
+          ttS.seasonId = tsEl.value || null;
+          S.put(ttS);
+          if (T && T.id === tidS) T.seasonId = ttS.seasonId;
+          if (T) S.setCurrentId(T.id);
+          render();
+          toast(tsEl.value ? '已归入赛季' : '已移出赛季');
+        }
+        return;
+      }
+
       var el = e.target.closest('[data-bind]');
       if (el) {
         var path = el.getAttribute('data-bind'), v;
+        // 名次档位清空 = 取消该档（改回「按步长递减」），不能写成 0 分
+        if (el.type === 'number' && el.value === '' && /(^|\.)rank\.top\.\d+$/.test(path)) {
+          var pParts = path.split('.');
+          var pOwner = getPath(T, pParts.slice(0, -1).join('.'));
+          if (pOwner) delete pOwner[pParts[pParts.length - 1]];
+          save();
+          render();
+          return;
+        }
         if (el.type === 'checkbox') v = el.checked;
         else if (el.type === 'number') v = parseFloat(el.value) || 0;
         else v = el.value;
@@ -3072,6 +4676,35 @@
         if (mst) afterStageEdit(T.stages[parseInt(mst[1], 10)], path);
         save();
         render();
+        return;
+      }
+      /* ---- 团体赛：选这一场双方上场的队员（排阵） ---- */
+      var tsl = e.target.closest('[data-tslot]');
+      if (tsl) {
+        var tsid = tsl.getAttribute('data-id');
+        var tssi = parseInt(tsl.getAttribute('data-s'), 10) || 0;
+        var tsside = tsl.getAttribute('data-tslot');
+        mutate(function () {
+          var m = findMatch(tsid);
+          if (!m) return { ok: false, msg: '' };
+          if (E.teamGameAt(m, tssi)) return { ok: false, msg: '这一场已经录过成绩了，要改先撤销' };
+          var cur = E.teamSlotPlayers(m, tssi);
+          var pa = (tsside === 'a') ? tsl.value : cur.a;
+          var pb = (tsside === 'b') ? tsl.value : cur.b;
+          var cfg = E.teamOf(T);
+          var side = (tsside === 'a') ? 'A' : 'B';
+          var pick = (tsside === 'a') ? pa : pb;
+          if (pick && !E.teamCanField(T, m, side, pick, tssi)) {
+            return {
+              ok: false,
+              msg: (cfg.mode === 'nvn')
+                ? '这名队员已经排在别的场次了（nvn 一人同时只能打一场）'
+                : (cfg.mode === 'conquest' ? '这名队员已经赢过一场，必须换人' : '这名队员已经输过，不能再上')
+            };
+          }
+          E.teamSetSlot(m, tssi, pa, pb);
+          return { ok: true, quiet: true };
+        });
         return;
       }
       var el4 = e.target.closest('[data-pair]');
@@ -3091,12 +4724,28 @@
         });
         return;
       }
+      // 团体赛：队员改名
+      var elT = e.target.closest('[data-tmember]');
+      if (elT) {
+        var tp = playerOf(elT.getAttribute('data-team'));
+        var tid = elT.getAttribute('data-tmember');
+        if (tp.members) {
+          var mb2 = tp.members.filter(function (x) { return x.id === tid; })[0];
+          if (mb2) {
+            mb2.name = elT.value;
+            save(); render();
+          }
+        }
+        return;
+      }
       var el2 = e.target.closest('[data-player]');
       if (el2) {
         var pid = el2.getAttribute('data-player'), f = el2.getAttribute('data-field');
         var p = playerOf(pid);
         if (p.id) {
-          p[f] = (f === 'seed' || f === 'initialScore') ? (parseFloat(el2.value) || 0) : el2.value;
+          p[f] = (f === 'seed' || f === 'initialScore' || f === 'startStage')
+        ? Math.max(0, parseInt(el2.value, 10) || 0)
+        : el2.value;
           save(); render();
         }
         return;

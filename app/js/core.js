@@ -241,7 +241,59 @@
     return {
       gamesPerMatch: 3,   // 每场比赛的局数
       winNeeded: 2,       // 赢多少局即获胜；0 表示不论赢几局都打满全部局数
-      recordScore: false // 是否记录每局具体比分（用于"按小分"计分）
+      recordScore: false, // 是否记录每局具体比分（用于"按小分"计分）
+      /* ---- 回合（v1.14.0）：局之上再套一层「回合」 ---- */
+      // sets = 每场分几个回合，每个回合用同一套局制。
+      //   1 = 不分回合（与旧版本完全一致）
+      //   3 + 每回合「五局三胜」= 三场五局三胜决出这场胜负
+      sets: 1,
+      // setRule = 回合之间怎么定这场胜负：
+      //   sets   赢下回合数（默认，3 回合 → 先赢 2 回合）
+      //   games  总大比分（各回合赢局数相加，多者胜）
+      //   points 总得分（各回合小分相加，多者胜）
+      setRule: 'sets',
+      // setsToWin = 需要赢几个回合才算赢；0 = 自动取「过半」
+      setsToWin: 0
+    };
+  };
+
+  // 局制归一化：补齐回合相关字段，避免旧存档 / 手填对象缺字段
+  M.normalizeFormat = function (f) {
+    var d = M.defaultFormat();
+    f = Object.assign({}, d, f || {});
+    if (!(parseInt(f.gamesPerMatch, 10) >= 1)) f.gamesPerMatch = 1;
+    if (!(parseInt(f.winNeeded, 10) >= 0)) f.winNeeded = 0;
+    if (!(parseInt(f.sets, 10) >= 1)) f.sets = 1;
+    f.sets = Math.min(99, parseInt(f.sets, 10) || 1);
+    if (['sets', 'games', 'points'].indexOf(f.setRule) < 0) f.setRule = 'sets';
+    if (!(parseInt(f.setsToWin, 10) >= 0)) f.setsToWin = 0;
+    f.recordScore = !!f.recordScore;
+    return f;
+  };
+
+  /* ---- 团体赛（v1.14.0 引入，v2.1 统一口径）：参赛单位是「队伍」 ----
+     结构：**一桌 = 一场比赛**。一场团体赛 = 若干场对局，每场双方各派一名队员打。
+           每场用团体局制定胜负；团体赛的大比分 = 赢下的场数；场内的局分只进小分。
+           nvn      双方同时开打（场数 = 上场人数），全部打完比赢下场数
+           conquest 赢过的人不能再上（必须换人），对手可选换不换；
+                    一队所有上场队员都各赢下一场才算赢
+           kof      输的下场、赢的留场，直到对方上场队员全被击败
+     录入：每场都先定上场队员（排阵），再录成绩；
+           nvn 必须先排好整场所有对局的对阵才能录。
+     mode      nvn / conquest / kof
+     size      每队人数（队伍没维护队员时的兜底人数）
+     playSize  每方上场人数，0 = 全员上场（队员不一定等于队伍人数时用这个限制）
+     winNeeded 已废弃（v2.0 起胜负完全按规则判定），字段保留仅供旧存档读取
+  */
+  M.defaultTeam = function () {
+    return {
+      on: false,
+      mode: 'nvn',
+      size: 3,
+      playSize: 0,
+      winNeeded: 0,
+      // 每一场对局用什么局制：null = 沿用赛事常规局制
+      fmt: null
     };
   };
 
@@ -294,6 +346,11 @@
       format: null,      // {gamesPerMatch, winNeeded, recordScore}
       useScoring: false,
       scoring: null,     // {mode, win, draw, lose, bye, perGame, formula}
+      /* 本阶段的积分怎么和上一阶段合（v2.0，只在积分规则「计分单元 = 每个阶段各算一次」时生效）
+           'inherit' 跟随赛事默认（ptsRule.stack）
+           'stack'   与上一阶段的积分叠加（累加）
+           'reset'   不叠加：只有晋级到本阶段的人重新起算，本阶段的分单独给 */
+      ptsStack: 'inherit',
       manualOrder: {},   // 本阶段手动名次
       // 小组赛
       groupCount: 4,
@@ -386,8 +443,131 @@
       note: '',
       active: true,              // 是否仍在比赛中
       dropReason: '',            // 退赛 / 取消资格
-      hasBye: false              // 是否已轮空过
+      hasBye: false,             // 是否已轮空过
+      // v1.14.0：从第几个阶段开始参赛（0 = 从第一阶段开始）。
+      // 用来让「种子 / 直邀选手 / 上届前四」直接从后续阶段打起。
+      startStage: 0
     };
+  };
+
+  /* ---------------- 赛事积分榜体系 ----------------
+     积分规则定义在**赛事**里：这场赛事打完，每个名次（或每个胜场）值多少分。
+     赛季页只负责把各站赛事的积分加起来，不再单独定义分值。
+       mode  : 计分方式（三选一）
+                 rank = 按最终名次给分
+                 win  = 按胜场 / 平 / 负给分
+                 adv  = 按是否晋级下一阶段给分（v2.0 起是独立的计分方式，不与前两种混算）
+       unit  : tournament = 整站只算一次；stage = 站内每个阶段各算一次
+       rank.top : { 名次: 分数 }，可以有很多档（前 10 / 前 20 / 前 32 都行）；
+                  没列出的名次按 step 从最近的低档往下递减，不低于 floor
+       adv      : 按是否晋级下一阶段给分（mode='adv' 时生效）
+                  { yes, no }  yes = 晋级到下一阶段得多少分，no = 没晋级得多少分
+                  晋级判定看**阶段实际晋级名单**（阶段「晋级条件」算出来的那批人）
+       stack / resetScope : 阶段之间默认怎么合；单个阶段可用 stage.ptsStack 覆盖
+       stageOv  : { '阶段序号': <完整的独立积分规则> } 阶段单独设置时不跟随赛事默认
+   ---------------------------------------------------------- */
+  M.defaultPtsRule = function () {
+    return {
+      on: false,
+      mode: 'rank',
+      unit: 'tournament',
+      rank: {
+        /* 名次档位（v1.14.0 改为「几个名次一档」）：
+           {from, to, pts, adv}
+             from / to  这一档覆盖第 from 名 ~ 第 to 名，同档同分
+             pts        这一档的分数
+             adv        这一档是否「晋级下一阶段」（只在积分榜上标注，不改晋级名单） */
+        tiers: [
+          { from: 1, to: 1, pts: 100, adv: true },
+          { from: 2, to: 3, pts: 80, adv: true },
+          { from: 4, to: 6, pts: 65, adv: true },
+          { from: 7, to: 10, pts: 50, adv: true },
+          { from: 11, to: 16, pts: 35, adv: false },
+          { from: 17, to: 24, pts: 20, adv: false }
+        ],
+        // 未覆盖到的名次：从最近的低档按 step 递减，不低于 floor
+        step: 3,
+        floor: 5
+      },
+      win: { perWin: 10, perDraw: 5, perLoss: 0, base: 0 },
+      /* 按是否晋级下一阶段给分（v2.0）：一种独立的计分方式（mode='adv'）。
+         晋级判定用「阶段实际晋级名单」，不是名次档位上的勾选。
+         这两个分值只在 mode='adv' 时生效，不会和名次分 / 胜场分相加。 */
+      adv: { yes: 100, no: 0 },
+      stack: true,
+      resetScope: 'participants',
+      stageOv: {}
+    };
+  };
+
+  // 旧存档的 rank.top（{名次:分数}）→ 转成等价的档位表
+  M.topToTiers = function (top) {
+    var keys = Object.keys(top || {}).map(function (k) { return parseInt(k, 10); })
+      .filter(function (n) { return n >= 1; }).sort(function (a, b) { return a - b; });
+    return keys.map(function (n) {
+      return { from: n, to: n, pts: parseFloat(top[n]) || 0, adv: false };
+    });
+  };
+
+  // 档位表的归一化：排序、纠正 from/to、清掉空行
+  M.normalizeTiers = function (tiers) {
+    if (!Array.isArray(tiers)) return [];
+    var out = [];
+    tiers.forEach(function (t) {
+      if (!t || typeof t !== 'object') return;
+      var from = parseInt(t.from, 10), to = parseInt(t.to, 10);
+      var pts = parseFloat(t.pts);
+      if (!(from >= 1)) return;
+      if (!(to >= from)) to = from;
+      if (!(pts >= 0)) pts = 0;
+      out.push({ from: from, to: Math.min(9999, to), pts: pts, adv: !!t.adv });
+    });
+    out.sort(function (a, b) { return a.from - b.from || a.to - b.to; });
+    return out;
+  };
+
+  // 积分规则归一化：补齐字段、把名次档位的键统一成数字字符串
+  M.normalizePtsRule = function (r) {
+    var d = M.defaultPtsRule();
+    var src = (r && r.rank) || {};
+    // 判断「来源里到底给了哪种口径」，避免默认档位把旧口径的 top 顶掉
+    var hadTiers = Array.isArray(src.tiers) && src.tiers.length > 0;
+    var hadTop = src.top && typeof src.top === 'object' && Object.keys(src.top).length > 0;
+    r = Object.assign({}, d, r || {});
+    r.rank = Object.assign({}, d.rank, src);
+    if (!hadTiers) {
+      // 老口径 rank.top → 新口径 rank.tiers（迁完仍保留 top，兼容旧的读取方）
+      r.rank.tiers = hadTop ? M.topToTiers(src.top)
+        : d.rank.tiers.map(function (t) { return Object.assign({}, t); });
+    }
+    r.rank.tiers = M.normalizeTiers(r.rank.tiers);
+    if (!r.rank.tiers.length) r.rank.tiers = d.rank.tiers.map(function (t) { return Object.assign({}, t); });
+    if (!(parseFloat(r.rank.step) >= 0)) r.rank.step = d.rank.step;
+    if (!(parseFloat(r.rank.floor) >= 0)) r.rank.floor = d.rank.floor;
+    r.win = Object.assign({}, d.win, r.win || {});
+    /* 晋级分（v2.0）：从「附加开关」改成独立计分方式。
+       旧存档里 adv.on=true 的规则一律迁移成 mode='adv'（只拿晋级分），
+       避免出现「选着按名次、实际又偷偷加了晋级分」这种看不懂的口径。 */
+    var advSrc = (r.adv && typeof r.adv === 'object') ? r.adv : {};
+    if (advSrc.on === true && ['rank', 'win'].indexOf(r.mode) >= 0) r.mode = 'adv';
+    var advYes = parseFloat(advSrc.yes), advNo = parseFloat(advSrc.no);
+    r.adv = {
+      yes: isFinite(advYes) ? advYes : d.adv.yes,
+      no: isFinite(advNo) ? advNo : d.adv.no
+    };
+    if (['rank', 'win', 'adv'].indexOf(r.mode) < 0) r.mode = 'rank';
+    if (['tournament', 'stage'].indexOf(r.unit) < 0) r.unit = 'tournament';
+    if (typeof r.stack !== 'boolean') r.stack = true;
+    if (['participants', 'all'].indexOf(r.resetScope) < 0) r.resetScope = 'participants';
+    if (typeof r.on !== 'boolean') r.on = false;
+    if (!r.stageOv || typeof r.stageOv !== 'object') r.stageOv = {};
+    Object.keys(r.stageOv).forEach(function (k) {
+      var ov = r.stageOv[k];
+      if (!ov || typeof ov !== 'object') { delete r.stageOv[k]; return; }
+      r.stageOv[k] = M.normalizePtsRule(ov);
+      r.stageOv[k].on = true;
+    });
+    return r;
   };
 
   M.createTournament = function (name) {
@@ -397,10 +577,13 @@
       name: name || '未命名赛事',
       createdAt: util.now(),
       seed: util.randomSeed(),
+      seasonId: null,
       players: [],
       format: M.defaultFormat(),
       scoring: M.defaultScoring(),      // 新建即已是完整依据表，无需再做破同依据迁移
       timer: M.defaultTimer(),          // 每场限时 / 到点自动结算
+      team: M.defaultTeam(),            // 团体赛（v1.14.0）：默认关闭
+      ptsRule: M.defaultPtsRule(),      // 本赛事的积分榜体系（赛季只做加总）
       byeRule: 'randomFirst',
       stages: [M.defaultStage(0)],
       currentStage: 0,
@@ -492,6 +675,120 @@
   };
   S.clear = function () { try { localStorage.removeItem(PREFIX + S.getCurrentId()); } catch (e) {} };
 
+  /* ---------------- 赛季：把多个赛事归入一个赛季并累计积分 ----------------
+     source = 'tournament' —— 赛季只做加总：每站赛事用它自己的 ptsRule 算分，
+                              赛季页不定义分值（新赛季默认走这种）
+     source = 'season'     —— 老模式：赛季统一一套分值，覆盖各站赛事自己的规则
+     ---------------------------------------------------------- */
+  M.defaultSeasonRule = function () {
+    return {
+      source: 'tournament',
+      // unit: tournament = 每站赛事算一次分；stage = 赛事内每个阶段各算一次
+      //   仅 source='season' 时生效；source='tournament' 时恒按站加总
+      unit: 'tournament',
+      stack: true,              // 是否与之前的计分单元累加
+      mode: 'rank',             // rank = 按名次；win = 按胜场
+      // 名次分档：与赛事积分榜同一口径（几个名次一档），之后按 step 递减，不低于 floor
+      rank: {
+        tiers: M.defaultPtsRule().rank.tiers.map(function (t) { return Object.assign({}, t); }),
+        step: 3, floor: 5
+      },
+      win: { perWin: 10, perDraw: 5, perLoss: 0, base: 0 },
+      resetScope: 'participants', // 不叠加时：participants 只重置进入该单元的人 / all 全榜重置
+      includeRunning: false,      // 进行中的单元是否先计入
+      overrides: {}               // key: 't:<tid>' 或 't:<tid>#<阶段序号>'
+    };
+  };
+
+  M.defaultSeason = function (name) {
+    return {
+      v: 1,
+      id: util.uid('se'),
+      name: name || '未命名赛季',
+      note: '',
+      createdAt: util.now(),
+      updatedAt: util.now(),
+      rule: M.defaultSeasonRule()
+    };
+  };
+
+  S.normalizeSeason = function (s) {
+    if (!s) return s;
+    var d = M.defaultSeasonRule();
+    // 旧赛季没有 source 字段 → 保持原来的「赛季统一规则」行为，不能悄悄改口径
+    var rawSource = (s.rule && s.rule.source) || '';
+    s.rule = Object.assign({}, d, s.rule || {});
+    var srcRank = (s.rule && s.rule.rank) || {};
+    var hadTiers = Array.isArray(srcRank.tiers) && srcRank.tiers.length > 0;
+    var hadTop = srcRank.top && typeof srcRank.top === 'object' && Object.keys(srcRank.top).length > 0;
+    s.rule.rank = Object.assign({}, d.rank, srcRank);
+    // 老赛季的 rank.top → 新档位表（行为不变：每个名次单独一档）
+    if (!hadTiers) {
+      s.rule.rank.tiers = hadTop ? M.topToTiers(srcRank.top)
+        : d.rank.tiers.map(function (t) { return Object.assign({}, t); });
+    }
+    s.rule.rank.tiers = M.normalizeTiers(s.rule.rank.tiers);
+    if (!s.rule.rank.tiers.length) s.rule.rank.tiers = d.rank.tiers.map(function (t) { return Object.assign({}, t); });
+    s.rule.win = Object.assign({}, d.win, s.rule.win || {});
+    if (!s.rule.overrides || typeof s.rule.overrides !== 'object') s.rule.overrides = {};
+    if (['tournament', 'stage'].indexOf(s.rule.unit) < 0) s.rule.unit = 'tournament';
+    if (['rank', 'win'].indexOf(s.rule.mode) < 0) s.rule.mode = 'rank';
+    if (typeof s.rule.stack !== 'boolean') s.rule.stack = true;
+    if (['participants', 'all'].indexOf(s.rule.resetScope) < 0) s.rule.resetScope = 'participants';
+    if (typeof s.rule.includeRunning !== 'boolean') s.rule.includeRunning = false;
+    if (!(parseFloat(s.rule.rank.step) >= 0)) s.rule.rank.step = d.rank.step;
+    if (!(parseFloat(s.rule.rank.floor) >= 0)) s.rule.rank.floor = d.rank.floor;
+    s.rule.source = (['tournament', 'season'].indexOf(rawSource) >= 0) ? rawSource : 'season';
+    return s;
+  };
+
+  var SEASON_IDX = 'tms_season_index';
+  var SEASON_PREFIX = 'tms_season_';
+
+  S.loadSeasons = function () { return readJSON(SEASON_IDX, []); };
+  S.saveSeasons = function (list) { return writeJSON(SEASON_IDX, list); };
+  S.getSeason = function (id) {
+    var s = readJSON(SEASON_PREFIX + id, null);
+    return s ? S.normalizeSeason(s) : null;
+  };
+  S.putSeason = function (s) {
+    if (!s || !s.id) return false;
+    s.updatedAt = util.now();
+    var ok = writeJSON(SEASON_PREFIX + s.id, s);
+    var idx = S.loadSeasons();
+    var meta = { id: s.id, name: s.name, createdAt: s.createdAt, updatedAt: s.updatedAt };
+    var found = false;
+    for (var i = 0; i < idx.length; i++) {
+      if (idx[i].id === s.id) { idx[i] = meta; found = true; break; }
+    }
+    if (!found) idx.push(meta);
+    S.saveSeasons(idx);
+    return ok;
+  };
+  S.delSeason = function (id) {
+    try { localStorage.removeItem(SEASON_PREFIX + id); } catch (e) {}
+    S.saveSeasons(S.loadSeasons().filter(function (x) { return x.id !== id; }));
+    // 解除赛事归属，避免悬空引用
+    S.loadIndex().forEach(function (m) {
+      var t = S.get(m.id);
+      if (t && t.seasonId === id) { t.seasonId = null; S.put(t); }
+    });
+    return true;
+  };
+  // 某个赛季下所有赛事（按创建时间排序，积分靠先后顺序累计）
+  S.tournamentsOfSeason = function (seasonId) {
+    var out = [];
+    S.loadIndex().forEach(function (m) {
+      var t = S.get(m.id);
+      if (t && t.seasonId === seasonId) out.push(t);
+    });
+    out.sort(function (a, b) {
+      return String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
+        String(a.id).localeCompare(String(b.id));
+    });
+    return out;
+  };
+
   // 兼容旧存档：补齐缺失字段
   S.normalize = function (t) {
     if (!t) return t;
@@ -557,21 +854,23 @@
       // 阶段级局制 / 记分（旧存档无此字段 → 沿用全局）
       if (s.useFormat === undefined) s.useFormat = false;
       if (s.useScoring === undefined) s.useScoring = false;
-      if (s.useFormat && s.format) s.format = Object.assign(M.defaultFormat(), s.format);
-      if (s.useFormat && !s.format) s.format = M.defaultFormat();
+      if (s.useFormat && s.format) s.format = M.normalizeFormat(s.format);
+      if (s.useFormat && !s.format) s.format = M.normalizeFormat(null);
       if (s.useScoring && s.scoring) s.scoring = Object.assign(M.defaultScoring(), s.scoring);
       if (s.useScoring && !s.scoring) s.scoring = M.defaultScoring();
+      // 阶段积分的叠加方式（旧存档无此字段 → 跟随赛事默认）
+      if (['inherit', 'stack', 'reset'].indexOf(s.ptsStack) < 0) s.ptsStack = 'inherit';
       if (!s.manualOrder || typeof s.manualOrder !== 'object') s.manualOrder = {};
       // 双败淘汰：总决赛规则（旧存档没有这些字段）
       if (s.gfMode === undefined || !s.gfMode) s.gfMode = 'reset';
       if (s.gfAdvSide === undefined) s.gfAdvSide = 'W';
       if (s.gfHandicap === undefined) s.gfHandicap = 1;
       if (s.gfUseFormat === undefined) s.gfUseFormat = false;
-      if (s.gfUseFormat) s.gfFormat = Object.assign({ gamesPerMatch: 3, winNeeded: 2, recordScore: false }, s.gfFormat || {});
-      if (!s.gfFormat || typeof s.gfFormat !== 'object') s.gfFormat = { gamesPerMatch: 3, winNeeded: 2, recordScore: false };
+      if (s.gfUseFormat) s.gfFormat = M.normalizeFormat(s.gfFormat);
+      if (!s.gfFormat || typeof s.gfFormat !== 'object') s.gfFormat = M.normalizeFormat(null);
       if (s.resetUseFormat === undefined) s.resetUseFormat = false;
-      if (s.resetUseFormat) s.resetFormat = Object.assign({ gamesPerMatch: 1, winNeeded: 1, recordScore: false }, s.resetFormat || {});
-      if (!s.resetFormat || typeof s.resetFormat !== 'object') s.resetFormat = { gamesPerMatch: 1, winNeeded: 1, recordScore: false };
+      if (s.resetUseFormat) s.resetFormat = M.normalizeFormat(Object.assign({ gamesPerMatch: 1, winNeeded: 1 }, s.resetFormat || {}));
+      if (!s.resetFormat || typeof s.resetFormat !== 'object') s.resetFormat = M.normalizeFormat({ gamesPerMatch: 1, winNeeded: 1 });
       // 清理旧版本遗留的「空比赛被写成 0:0 平局」脏数据
       (s.roundsData || []).forEach(function (rd) {
         (rd.matches || []).forEach(function (m) {
@@ -594,10 +893,51 @@
     }
     if (!Array.isArray(t.history)) t.history = [];
     if (t.players === undefined) t.players = [];
+    // 赛季归属（旧存档没有该字段 → 不属于任何赛季）
+    if (t.seasonId === undefined) t.seasonId = null;
+    // 赛事积分榜体系（旧存档没有该字段 → 默认关闭，不影响原有赛季口径）
+    t.ptsRule = M.normalizePtsRule(t.ptsRule);
+    // 团体赛设置（旧存档没有 → 关闭）
+    t.team = Object.assign(M.defaultTeam(), t.team || {});
+    if (['nvn', 'conquest', 'kof'].indexOf(t.team.mode) < 0) t.team.mode = 'nvn';
+    if (!(parseInt(t.team.size, 10) >= 1)) t.team.size = 3;
+    t.team.size = Math.min(99, parseInt(t.team.size, 10) || 3);
+    if (!(parseInt(t.team.playSize, 10) >= 0)) t.team.playSize = 0;
+    t.team.playSize = Math.min(99, parseInt(t.team.playSize, 10) || 0);
+    if (!(parseInt(t.team.winNeeded, 10) >= 0)) t.team.winNeeded = 0;
+    if (t.team.fmt) t.team.fmt = M.normalizeFormat(t.team.fmt);
+    /* 团体赛：一桌 = 一场。旧存档的每条 games 没有场次号 → 按顺序补上 s，
+       并补一个空的排阵表 slots（旧数据的上场队员已写在 games 的 pa / pb 里）。 */
+    if (t.team.on) {
+      t.stages.forEach(function (s0) {
+        (s0.roundsData || []).forEach(function (rd) {
+          (rd.matches || []).forEach(function (m) {
+            if (!Array.isArray(m.slots)) m.slots = [];
+            var next = 0;
+            (m.games || []).forEach(function (g) {
+              if (g.s === undefined || g.s === null || g.s === '') g.s = next;
+              var cur = parseInt(g.s, 10);
+              if (!(cur >= 0)) cur = next;
+              next = Math.max(next, cur + 1);
+            });
+          });
+        });
+      });
+    }
+    if (t.format) t.format = M.normalizeFormat(t.format);
     t.players.forEach(function (p) {
       if (p.active === undefined) p.active = true;
       if (p.hasBye === undefined) p.hasBye = false;
       if (p.dropReason === undefined) p.dropReason = '';
+      if (!(parseInt(p.startStage, 10) >= 0)) p.startStage = 0;
+      p.startStage = parseInt(p.startStage, 10) || 0;
+      // 团体赛：队员列表（个人赛不会用到）
+      if (Array.isArray(p.members)) {
+        p.members.forEach(function (mb) {
+          if (!mb.id) mb.id = util.uid('mb');
+          if (!(parseInt(mb.seed, 10) >= 0)) mb.seed = 0;
+        });
+      }
     });
     return t;
   };

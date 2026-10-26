@@ -1,0 +1,58 @@
+name: 🐞 Bug 报告
+description: 报告一个可复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填全，方便我们复现与定位。
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 设置页或关于里看到的版本号（如 v2.1.0）
+      placeholder: v2.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 运行平台
+      options:
+        - Windows 桌面版（exe）
+        - Android（apk）
+        - Web 版（浏览器直接打开 app/index.html）
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 简明描述现象
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 赛事设置 + 操作序列，越具体越好
+      placeholder: |
+        1. 新建赛事，赛制选「瑞士轮」…
+        2. 进入第 2 阶段…
+        3. 点「结算」后…
+    validations:
+      required: true
+  - type: textarea
+    id: expect
+    attributes:
+      label: 期望结果
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: 截图 / 补充
+      description: 可粘贴截图或导出文件
+    validations:
+      required: false

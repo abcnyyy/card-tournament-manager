@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>卡牌赛事编排 · UI 重构视觉稿 v2</title>
+<style>
+/* =====================================================================
+   视觉稿：只用于评审，不是正式实现。
+   目的：证明「同样的功能，用另一套排版能少 40% 视觉噪声、多 60% 信息量」。
+   ===================================================================== */
+:root{
+  --bg:#F4F5F7;
+  --surface:#FFFFFF;
+  --surface-2:#FAFBFC;
+  --line:#E4E7EC;
+  --line-2:#D0D5DD;
+  --fg:#101828;
+  --fg-2:#475467;
+  --fg-3:#8A94A6;
+  --brand:#2F5BEA;
+  --brand-soft:#EEF3FF;
+  --ok:#067647;
+  --ok-soft:#ECFDF3;
+  --warn:#B54708;
+  --warn-soft:#FFFAEB;
+  --danger:#B42318;
+  --danger-soft:#FEF3F2;
+  --r-sm:6px;
+  --r:8px;
+  --r-lg:12px;
+  --sp:4px;
+  --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.04);
+  --font:-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+  --mono:"Cascadia Mono","Consolas","Courier New",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.55}
+button{font-family:inherit}
+.app{display:flex;min-height:100vh}
+
+/* ---------------- 侧边栏 ---------------- */
+.side{
+  width:212px;flex:0 0 212px;background:var(--surface);border-right:1px solid var(--line);
+  padding:14px 10px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:2px;
+}
+.brand{display:flex;align-items:center;gap:8px;padding:6px 8px 14px}
+.brand .logo{width:24px;height:24px;border-radius:6px;background:var(--fg);color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;letter-spacing:-.5px}
+.brand b{font-size:13.5px;font-weight:600;letter-spacing:.2px}
+.nav-t{font-size:11px;font-weight:600;color:var(--fg-3);padding:14px 8px 6px;letter-spacing:.4px}
+.nav{
+  display:flex;align-items:center;gap:9px;height:34px;padding:0 9px;border-radius:var(--r-sm);
+  color:var(--fg-2);font-size:13.5px;font-weight:500;cursor:pointer;border:0;background:none;width:100%;text-align:left;
+}
+.nav:hover{background:var(--surface-2);color:var(--fg)}
+.nav.on{background:var(--brand-soft);color:var(--brand);font-weight:600}
+.nav .ic{width:16px;height:16px;flex:0 0 16px;stroke:currentColor;fill:none;stroke-width:1.6;opacity:.85}
+.nav .badge{margin-left:auto;font-size:11px;font-weight:600;color:var(--fg-3);font-family:var(--mono)}
+.nav.on .badge{color:var(--brand)}
+.side-foot{margin-top:auto;padding:10px 8px;border-top:1px solid var(--line);font-size:11.5px;color:var(--fg-3);line-height:1.5}
+
+/* ---------------- 主区 ---------------- */
+.content{flex:1;min-width:0;display:flex;flex-direction:column}
+.phead{
+  display:flex;align-items:center;gap:12px;padding:0 20px;height:56px;
+  background:rgba(255,255,255,.9);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20;
+}
+.crumb{font-size:12.5px;color:var(--fg-3);display:flex;align-items:center;gap:6px}
+.crumb b{color:var(--fg);font-weight:600}
+.phead .sp{flex:1}
+.page{padding:20px;max-width:1280px;width:100%;margin:0 auto}
+.page-h{display:flex;align-items:flex-end;gap:12px;margin-bottom:16px}
+.page-h h1{margin:0;font-size:19px;font-weight:600;letter-spacing:-.2px}
+.page-h p{margin:0 0 2px;font-size:12.5px;color:var(--fg-3)}
+.page-h .sp{flex:1}
+
+/* ---------------- 按钮 ---------------- */
+.btn{
+  height:32px;padding:0 12px;border-radius:var(--r-sm);border:1px solid var(--line-2);
+  background:var(--surface);color:var(--fg);font-size:13px;font-weight:500;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:.12s;
+}
+.btn:hover{background:var(--surface-2);border-color:#B8C0CE}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+.btn.primary:hover{background:#2749c9}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--fg-2)}
+.btn.ghost:hover{background:var(--surface-2);color:var(--fg)}
+.btn.sm{height:26px;padding:0 9px;font-size:12px}
+.btn.danger{color:var(--danger);border-color:#F3C9C5}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-group{display:inline-flex;border:1px solid var(--line-2);border-radius:var(--r-sm);overflow:hidden}
+.btn-group .btn{border:0;border-radius:0;border-right:1px solid var(--line);height:32px}
+.btn-group .btn:last-child{border-right:0}
+
+/* ---------------- 卡片 ---------------- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:14px}
+.card-h{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.card-h h3{margin:0;font-size:13.5px;font-weight:600}
+.card-h .desc{font-size:12px;color:var(--fg-3)}
+.card-h .sp{flex:1}
+.card-b{padding:16px}
+.card-b.tight{padding:0}
+
+.split{display:grid;grid-template-columns:minmax(0,1fr) 296px;gap:14px;align-items:start}
+@media(max-width:1080px){.split{grid-template-columns:1fr}}
+
+/* ---------------- 表单 ---------------- */
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px 18px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px 16px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field > label{font-size:12.5px;font-weight:500;color:var(--fg-2)}
+.field .tip{font-size:11.5px;color:var(--fg-3);line-height:1.45}
+.input,.select{
+  height:34px;padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r-sm);
+  background:var(--surface);font-size:13px;font-family:inherit;color:var(--fg);width:100%;
+}
+.select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,#667085 50%),linear-gradient(135deg,#667085 50%,transparent 50%);
+  background-position:calc(100% - 14px) 15px,calc(100% - 9px) 15px;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:28px}
+.input:focus,.select:focus{outline:0;border-color:var(--brand);box-shadow:0 0 0 3px rgba(47,91,234,.12)}
+.input.mono{font-family:var(--mono);font-size:12.5px}
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fg-2);cursor:pointer}
+.switch input{appearance:none;width:32px;height:18px;border-radius:999px;background:#D0D5DD;position:relative;cursor:pointer;transition:.15s;margin:0}
+.switch input:checked{background:var(--brand)}
+.switch input::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.15s}
+.switch input:checked::after{transform:translateX(14px)}
+.seg{display:inline-flex;padding:2px;background:#F2F4F7;border-radius:7px;gap:2px}
+.seg button{border:0;background:none;height:28px;padding:0 12px;border-radius:5px;font-size:12.5px;font-weight:500;color:var(--fg-2);cursor:pointer}
+.seg button.on{background:#fff;color:var(--fg);font-weight:600;box-shadow:0 1px 2px rgba(16,24,40,.08)}
+
+/* ---------------- 表格 ---------------- */
+.tbl-wrap{overflow:auto;border-radius:0 0 var(--r) var(--r)}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:13px}
+th{
+  position:sticky;top:0;z-index:2;background:var(--surface-2);color:var(--fg-3);
+  font-size:11.5px;font-weight:600;text-align:left;padding:8px 10px;
+  border-bottom:1px solid var(--line);white-space:nowrap;letter-spacing:.2px;
+}
+td{padding:7px 10px;border-bottom:1px solid #F0F2F5;vertical-align:middle}
+tbody tr:hover td{background:#FCFCFD}
+td.num,th.num{text-align:right;font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+td.name{font-weight:500}
+tr.top1 td{background:#FFFDF5}
+tr.top1:hover td{background:#FFFCEB}
+.rk{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;font-size:11.5px;font-weight:600;color:var(--fg-2);background:#F2F4F7;font-family:var(--mono)}
+.rk.g{background:#FDF2C7;color:#8A6100}
+.rk.s{background:#EDEFF2;color:#586172}
+.rk.b{background:#F8E6D2;color:#8A4B12}
+.win{color:var(--ok);font-weight:600}
+.lose{color:var(--fg-3)}
+
+/* ---------------- 状态色条 / 标签 ---------------- */
+.notice{display:flex;gap:10px;padding:9px 13px;border-radius:var(--r-sm);font-size:12.5px;line-height:1.55;border:1px solid}
+.notice.warn{background:var(--warn-soft);border-color:#FDE7B0;color:#7A4405}
+.notice.info{background:var(--brand-soft);border-color:#D6E0FF;color:#25398F}
+.notice.ok{background:var(--ok-soft);border-color:#C7EBD4;color:#05603A}
+.notice b{font-weight:600}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;background:currentColor;margin-right:5px;vertical-align:1px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:4px;font-size:11.5px;font-weight:500;background:#F2F4F7;color:var(--fg-2);white-space:nowrap}
+.tag.blue{background:var(--brand-soft);color:var(--brand)}
+.tag.green{background:var(--ok-soft);color:var(--ok)}
+.tag.gray{background:#F2F4F7;color:var(--fg-3)}
+.tag.amber{background:var(--warn-soft);color:var(--warn)}
+.tag.line{background:transparent;border:1px solid var(--line-2);color:var(--fg-2)}
+
+/* ---------------- 阶段条 ---------------- */
+.stage-bar{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px}
+.stage-pill{
+  display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);
+  background:var(--surface);border-radius:8px;cursor:pointer;white-space:nowrap;font-size:12.5px;
+}
+.stage-pill.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+.stage-pill b{font-weight:600}
+.stage-pill i{font-style:normal;font-size:11px;color:var(--fg-3)}
+.stage-pill.on i{color:#4B6FE0}
+
+/* ---------------- 对阵卡 ---------------- */
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(304px,1fr));gap:10px}
+.mcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+.mcard.running{border-color:#C9D6FB}
+.mcard-h{display:flex;align-items:center;gap:8px;padding:6px 11px;background:var(--surface-2);border-bottom:1px solid var(--line);font-size:11.5px;color:var(--fg-3)}
+.mcard-h .no{font-weight:600;color:var(--fg-2);font-family:var(--mono);font-size:11.5px}
+.mcard-h .sp{flex:1}
+.mcard-h .sc{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--fg)}
+.pl{display:flex;align-items:center;gap:8px;padding:7px 11px;border-bottom:1px solid #F2F4F7;position:relative}
+.pl:last-of-type{border-bottom:0}
+.pl.w{background:#FBFDFF}
+.pl.w::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--brand)}
+.pl .nm{font-size:13.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl.w .nm{font-weight:600}
+.pl .meta{font-size:11px;color:var(--fg-3);font-family:var(--mono);white-space:nowrap}
+.pl .score{font-family:var(--mono);font-size:16px;font-weight:600;min-width:18px;text-align:right}
+.pl.w .score{color:var(--brand)}
+.mcard-f{display:flex;align-items:center;gap:8px;padding:7px 11px;border-top:1px solid #F2F4F7;background:#FCFCFD}
+.mcard-f .sp{flex:1}
+.timer{font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
+.timer.hot{color:var(--danger);font-weight:600}
+.score-in{display:flex;align-items:center;gap:6px}
+.score-in input{width:34px;height:26px;text-align:center;border:1px solid var(--line-2);border-radius:4px;font-family:var(--mono);font-size:13px;padding:0}
+.score-in span{color:var(--fg-3);font-size:12px}
+
+/* ---------------- 赛季榜 ---------------- */
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.kpi .k{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.kpi .k b{display:block;font-size:20px;font-weight:600;font-family:var(--mono);letter-spacing:-.5px}
+.kpi .k span{font-size:11.5px;color:var(--fg-3)}
+.leg{font-size:11.5px;color:var(--fg-3);padding:9px 16px;border-top:1px solid var(--line);background:var(--surface-2)}
+.rule-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px dashed #EDEFF2;font-size:12.5px}
+.rule-row:last-child{border-bottom:0}
+.rule-row span{color:var(--fg-3)}
+.rule-row b{font-weight:600}
+.season-row td{background:#FBFCFE}
+
+/* ---------------- 旧版对比（模拟当前实现） ---------------- */
+body.legacy{--bg:#fff;--surface:#fff;--line:#000;--line-2:#000;--fg:#000;--fg-2:#000;--fg-3:#333;--brand:#000;--brand-soft:#000}
+body.legacy *{border-radius:0!important;box-shadow:none!important}
+body.legacy .side{display:none}
+body.legacy{font-size:16px}
+body.legacy .card{border:2px solid #000}
+body.legacy .card-h{padding:12px 14px;border-bottom:2px solid #000}
+body.legacy .card-h h3{font-size:18px;font-weight:800}
+body.legacy .phead{border-bottom:3px solid #000;height:64px}
+body.legacy .page-h h1{font-size:22px;font-weight:800}
+body.legacy .btn{border:2px solid #000;font-weight:700;font-size:15px;height:34px}
+body.legacy .btn.primary{background:#000;color:#fff}
+body.legacy .input,body.legacy .select{border:2px solid #000;font-weight:700;font-size:15px;height:32px}
+body.legacy .field>label{font-size:15px;font-weight:700;color:#000}
+body.legacy table{font-size:15px}
+body.legacy th{background:#000;color:#fff;font-size:14px;font-weight:800}
+body.legacy .mcard{border:2px solid #000;box-shadow:3px 3px 0 #000}
+body.legacy .pl .nm{font-size:17px;font-weight:800}
+body.legacy .tag{border:1px solid #000;background:#fff;color:#000;font-weight:700}
+body.legacy .notice{border:2px solid #000;background:#fff;color:#000;font-weight:700}
+body.legacy .stage-pill{border:2px solid #000;font-weight:800;font-size:14px}
+body.legacy .stage-pill.on{background:#000;color:#fff}
+body.legacy .rk{background:#000;color:#fff;font-weight:800}
+
+/* ---------------- 顶部对比开关 ---------------- */
+.cmp{position:fixed;right:16px;bottom:16px;z-index:99;display:flex;align-items:center;gap:8px;
+  background:#101828;color:#fff;padding:8px 12px;border-radius:999px;font-size:12px;box-shadow:0 6px 18px rgba(16,24,40,.25)}
+.cmp button{background:rgba(255,255,255,.14);border:0;color:#fff;font-size:12px;padding:4px 11px;border-radius:999px;cursor:pointer}
+.cmp button.on{background:#fff;color:#101828;font-weight:600}
+@media(max-width:900px){
+  .side{display:none}
+  .page{padding:14px}
+  .kpi{grid-template-columns:repeat(2,1fr)}
+  .phead{flex-wrap:wrap;height:auto;padding:10px 14px;gap:8px}
+  .phead .crumb{width:100%}
+  .page-h{flex-wrap:wrap;gap:8px}
+  .page-h .sp{display:none}
+  .mgrid{grid-template-columns:1fr}
+  .split{grid-template-columns:1fr}
+  .cmp{bottom:12px;right:12px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="logo">CT</div><b>卡牌赛事编排</b></div>
+
+    <div class="nav-t">赛事</div>
+    <button class="nav" data-v="setup"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>赛事列表</button>
+    <button class="nav on" data-v="setup"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>赛事设置<span class="badge">3</span></button>
+    <button class="nav" data-v="setup"><svg class="ic" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-8 0v2"/><circle cx="12" cy="7" r="4"/></svg>选手管理<span class="badge">25</span></button>
+    <button class="nav" data-v="matches"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="13" width="7" height="7" rx="1"/><path d="M10 7.5h4v9"/></svg>对阵与录入</button>
+    <button class="nav" data-v="standing"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19h4V9H4zM10 19h4V5h-4zM16 19h4v-7h-4z"/></svg>排名</button>
+    <button class="nav" data-v="export"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>导出</button>
+
+    <div class="nav-t">统计</div>
+    <button class="nav" data-v="season"><svg class="ic" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v3a3 3 0 0 1-3 3M7 5H4v3a3 3 0 0 0 3 3"/></svg>赛季积分<span class="badge">新</span></button>
+
+    <div class="side-foot">本地保存 · 无需联网<br>v1.12.0（预览）</div>
+  </aside>
+
+  <div class="content">
+    <header class="phead">
+      <div class="crumb">赛事 <span>/</span> <b id="ttl">2026 秋季联赛 · 第 3 站</b></div>
+      <div class="sp"></div>
+      <button class="btn ghost">载入存档</button>
+      <button class="btn">保存</button>
+      <button class="btn primary">新建赛事</button>
+    </header>
+
+    <main class="page" id="page"></main>
+  </div>
+</div>
+
+<div class="cmp">
+  <span>视觉对比</span>
+  <button id="bNew" class="on">新版</button>
+  <button id="bOld">当前版</button>
+</div>
+
+<script>
+/* ---------- 视图模板（纯字符串，方便评审时直接改） ---------- */
+var V = {};
+
+/* 排名表数据 */
+var ROWS = [
+  ['1','ppppsssss',9,3,3,0,0,'3-0','+3',18,'g'],
+  ['2','Fiandre',9,3,3,0,0,'3-0','+3',12,'s'],
+  ['3','kaibailan',9,3,3,0,0,'3-0','+3',9,'b'],
+  ['4','JCLE',6,3,2,0,1,'2-1','+1',15,''],
+  ['4','iwsz000',6,3,2,0,1,'2-1','+1',15,''],
+  ['6','杰森',6,3,2,0,1,'2-1','+1',12,''],
+  ['7','黑心博士',6,3,2,0,1,'2-1','+1',9,''],
+  ['8','leftno12',3,3,1,0,2,'1-2','−1',12,''],
+  ['9','loomo',3,3,1,0,2,'1-2','−1',9,''],
+  ['10','邪正人鬼',0,3,0,0,3,'0-3','−3',6,'']
+];
+var ROWS_HTML = ROWS.map(function(r){
+  var st = r[2] === 9 ? '<span class="tag green">已晋级</span>'
+         : (r[2] === 0 ? '<span class="tag gray">淘汰</span>' : '<span class="tag line">待定</span>');
+  return '<tr><td><span class="rk ' + r[10] + '">' + r[0] + '</span></td>'
+    + '<td class="name">' + r[1] + '</td>'
+    + '<td class="num"><b>' + r[2] + '</b></td><td class="num">' + r[3] + '</td>'
+    + '<td class="num win">' + r[4] + '</td><td class="num">' + r[5] + '</td>'
+    + '<td class="num">' + r[6] + '</td>'
+    + '<td class="num">' + r[7] + '</td><td class="num">' + r[8] + '</td><td class="num">' + r[9] + '</td>'
+    + '<td>' + st + '</td></tr>';
+}).join('');
+
+/* 赛季榜数据 */
+var SROWS = [
+  ['1','JCLE',245,3,100,80,65,'冠军 ×1','g'],
+  ['2','kaibailan',220,3,80,100,40,'冠军 ×1','s'],
+  ['3','Fiandre',195,3,65,65,65,'亚军 ×1','b'],
+  ['4','ppppsssss',160,3,55,55,50,'第 4 名',''],
+  ['5','杰森',120,2,50,70,'—','第 5 名',''],
+  ['6','loomo',95,3,40,30,25,'第 8 名','']
+];
+var SROWS_HTML = SROWS.map(function(r){
+  return '<tr><td><span class="rk ' + r[8] + '">' + r[0] + '</span></td><td class="name">' + r[1] + '</td>'
+    + '<td class="num"><b>' + r[2] + '</b></td><td class="num">' + r[3] + '</td>'
+    + '<td class="num">' + r[4] + '</td><td class="num">' + r[5] + '</td><td class="num">' + r[6] + '</td>'
+    + '<td style="color:var(--fg-3);font-size:12px">' + r[7] + '</td></tr>';
+}).join('');
+
+V.setup = `
+<div class="page-h">
+  <div>
+    <h1>赛事设置</h1>
+    <p>2026 秋季联赛 · 第 3 站 · 25 名选手 · 3 个阶段</p>
+  </div>
+  <div class="sp"></div>
+  <button class="btn">复制设置到其他阶段</button>
+</div>
+
+<div class="stage-bar">
+  <div class="stage-pill"><b>第 1 阶段</b><i>瑞士轮 · 5 轮 · 已结束</i></div>
+  <div class="stage-pill on"><b>第 2 阶段</b><i>单败淘汰 · 16 人 · 进行中</i></div>
+  <div class="stage-pill"><b>第 3 阶段</b><i>双败淘汰 · 8 人 · 未开始</i></div>
+</div>
+
+<div class="split">
+  <div>
+    <section class="card">
+      <div class="card-h"><h3>基本信息</h3><div class="sp"></div><span class="tag gray">自动保存</span></div>
+      <div class="card-b">
+        <div class="grid2">
+          <div class="field"><label>赛事名称</label><input class="input" value="2026 秋季联赛 · 第 3 站"></div>
+          <div class="field"><label>随机种子</label><input class="input mono" value="1317422313"><div class="tip">决定抽签结果，存档后可复现</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h3>第 2 阶段 · 赛制</h3><div class="sp"></div><span class="tag blue">进行中</span></div>
+      <div class="card-b">
+        <div class="grid3">
+          <div class="field"><label>赛制</label>
+            <div class="seg"><button class="on">单败</button><button>双败</button><button>瑞士轮</button><button>循环赛</button></div>
+          </div>
+          <div class="field"><label>参赛人数</label><input class="input mono" value="16"></div>
+          <div class="field"><label>晋级人数</label><input class="input mono" value="8"></div>
+        </div>
+        <div class="grid3" style="margin-top:14px">
+          <div class="field"><label>首轮编排</label>
+            <select class="select"><option>按种子号编排</option><option>分档抽签</option><option>完全随机</option></select>
+          </div>
+          <div class="field"><label>平局处理</label>
+            <select class="select"><option>自动加赛决胜</option><option>允许平局</option></select>
+          </div>
+          <div class="field"><label>季军赛</label>
+            <div class="switch"><input type="checkbox"><span>设置 3 / 4 名决赛</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h3>局制与记分</h3><div class="sp"></div>
+        <div class="switch"><input type="checkbox" checked><span>本阶段独立设置</span></div>
+      </div>
+      <div class="card-b">
+        <div class="grid3">
+          <div class="field"><label>每场比赛局数</label><input class="input mono" value="3"></div>
+          <div class="field"><label>获胜所需局数</label><input class="input mono" value="2"></div>
+          <div class="field"><label>记分方式</label><select class="select"><option>按大比分逐档设分</option></select></div>
+        </div>
+      </div>
+      <div class="card-b tight" style="border-top:1px solid var(--line)">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th style="width:120px">最终比分</th><th class="num" style="width:90px">胜方得</th><th class="num" style="width:90px">负方得</th><th class="num" style="width:110px">平局各得</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">2 : 0</td><td class="num"><input class="input mono" value="5" style="height:26px;text-align:right"></td><td class="num"><input class="input mono" value="0" style="height:26px;text-align:right"></td><td class="num">—</td><td style="color:var(--fg-3)">胜者赢 2 局、负者 0 局</td></tr>
+              <tr><td class="mono">2 : 1</td><td class="num"><input class="input mono" value="4" style="height:26px;text-align:right"></td><td class="num"><input class="input mono" value="1" style="height:26px;text-align:right"></td><td class="num">—</td><td style="color:var(--fg-3)">胜者赢 2 局、负者 1 局</td></tr>
+              <tr><td class="mono">1 : 1</td><td class="num">—</td><td class="num">—</td><td class="num"><input class="input mono" value="2" style="height:26px;text-align:right"></td><td style="color:var(--fg-3)">平局，双方各得 2 分</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div>
+    <section class="card">
+      <div class="card-h"><h3>本阶段进度</h3></div>
+      <div class="card-b" style="padding:12px 16px">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px"><span style="color:var(--fg-3)">已完成</span><b class="mono">12 / 15 场</b></div>
+        <div style="height:6px;border-radius:3px;background:#EEF0F3;overflow:hidden"><div style="height:100%;width:80%;background:var(--brand);border-radius:3px"></div></div>
+        <div style="margin-top:12px;font-size:12px;color:var(--fg-3);line-height:1.7">
+          第 2 轮 · 8 进 4<br>剩余 3 场未录入
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h3>待办</h3></div>
+      <div class="card-b" style="padding:10px 16px">
+        <div class="notice warn" style="margin:4px 0"><div>3 场未录入，无法进入下一轮</div></div>
+        <div class="notice info" style="margin:8px 0"><div>平局处理为「加赛」，1 场需加赛</div></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h3>继承自上一阶段</h3></div>
+      <div class="card-b" style="padding:8px 16px">
+        <div class="rule-row"><span>积分继承</span><b>开启 · 100%</b></div>
+        <div class="rule-row"><span>小分继承</span><b>全部小分</b></div>
+        <div class="rule-row"><span>继承来源</span><b>第 1 阶段</b></div>
+      </div>
+    </section>
+  </div>
+</div>`;
+
+V.matches = `
+<div class="page-h">
+  <div><h1>对阵与录入</h1><p>第 2 阶段 · 单败淘汰 · 第 2 轮 / 共 4 轮</p></div>
+  <div class="sp"></div>
+  <button class="btn">回退一步</button>
+  <button class="btn">打印本轮</button>
+  <button class="btn primary">完成本轮</button>
+</div>
+
+<div class="notice warn" style="margin-bottom:12px"><div><b>3 场未完成</b> —— 全部录完后才能生成下一轮。</div></div>
+
+<div style="display:flex;gap:6px;overflow:auto;margin-bottom:14px">
+  <button class="btn sm">第 1 轮 · 8 场</button>
+  <button class="btn sm primary">第 2 轮 · 4 场</button>
+  <button class="btn sm" disabled>第 3 轮</button>
+  <button class="btn sm" disabled>决赛</button>
+</div>
+
+<div class="mgrid">
+  <div class="mcard running">
+    <div class="mcard-h"><span class="no">第 1 桌</span><span class="tag green"><i class="dot"></i>进行中</span><div class="sp"></div><span class="sc">1 : 0</span></div>
+    <div class="pl w"><span class="nm">JCLE</span><span class="meta">2 胜 0 负 · 6 分</span><span class="score">1</span></div>
+    <div class="pl"><span class="nm">kaibailan</span><span class="meta">2 胜 1 负 · 6 分</span><span class="score">0</span></div>
+    <div class="mcard-f"><span class="timer hot">限时 03:12</span><div class="sp"></div>
+      <div class="score-in"><input value="1"><span>:</span><input value="0"></div>
+      <button class="btn sm primary">结算</button>
+    </div>
+  </div>
+
+  <div class="mcard">
+    <div class="mcard-h"><span class="no">第 2 桌</span><span class="tag gray">待录入</span><div class="sp"></div></div>
+    <div class="pl"><span class="nm">Fiandre</span><span class="meta">2 胜 0 负 · 6 分</span><span class="score">—</span></div>
+    <div class="pl"><span class="nm">iwsz000</span><span class="meta">1 胜 1 负 · 3 分</span><span class="score">—</span></div>
+    <div class="mcard-f"><span class="timer">限时 05:00</span><div class="sp"></div>
+      <button class="btn sm">录分</button>
+    </div>
+  </div>
+
+  <div class="mcard">
+    <div class="mcard-h"><span class="no">第 3 桌</span><span class="tag green"><i class="dot"></i>已结束</span><div class="sp"></div><span class="sc">2 : 1</span></div>
+    <div class="pl w"><span class="nm">ppppsssss</span><span class="meta">进 4 强</span><span class="score">2</span></div>
+    <div class="pl lose"><span class="nm">杰森</span><span class="meta">淘汰</span><span class="score">1</span></div>
+    <div class="mcard-f"><span class="tag line">胜者进半决赛</span><div class="sp"></div><button class="btn sm ghost">撤销</button></div>
+  </div>
+
+  <div class="mcard">
+    <div class="mcard-h"><span class="no">第 4 桌</span><span class="tag gray">待录入</span><div class="sp"></div></div>
+    <div class="pl"><span class="nm">loomo</span><span class="meta">2 胜 0 负 · 6 分</span><span class="score">—</span></div>
+    <div class="pl"><span class="nm">邪正人鬼</span><span class="meta">2 胜 1 负 · 6 分</span><span class="score">—</span></div>
+    <div class="mcard-f"><span class="timer">限时 05:00</span><div class="sp"></div><button class="btn sm">录分</button></div>
+  </div>
+</div>
+
+<div style="margin-top:16px;font-size:12px;color:var(--fg-3)">共 4 桌 · 已结束 1 桌 · 进行中 1 桌 · 待录入 2 桌</div>`;
+
+V.standing = `
+<div class="page-h">
+  <div><h1>排名</h1><p>第 2 阶段 · 单败淘汰 · 按「积分 → 对手分 → 相互战绩」排序</p></div>
+  <div class="sp"></div>
+  <select class="select" style="width:170px"><option>第 2 阶段</option><option>第 1 阶段</option></select>
+  <button class="btn">打印排名</button>
+</div>
+
+<div class="notice info" style="margin-bottom:12px"><div>提前晋级已启用：达到 <b>3 胜</b> 锁定席位，已锁定 <b>2</b> 人。</div></div>
+
+<section class="card">
+  <div class="card-h"><h3>第 2 阶段排名</h3><div class="sp"></div><span class="tag gray">16 人</span></div>
+  <div class="card-b tight">
+    <div class="tbl-wrap" style="max-height:560px">
+      <table>
+        <thead><tr>
+          <th style="width:46px">名次</th><th style="min-width:150px">选手</th>
+          <th class="num" style="width:60px">积分</th><th class="num" style="width:52px">场次</th>
+          <th class="num" style="width:46px">胜</th><th class="num" style="width:46px">平</th><th class="num" style="width:46px">负</th>
+          <th class="num" style="width:74px">赢/输局</th><th class="num" style="width:66px">净胜局</th>
+          <th class="num" style="width:84px">对手分</th><th style="width:92px">状态</th>
+        </tr></thead>
+        <tbody>${ROWS_HTML}</tbody>
+      </table>
+    </div>
+  </div>
+  <div class="leg">名次相同者按「对手分 → 相互战绩 → 种子序」依次比较。点击选手可查看其全部战绩。</div>
+</section>`;
+
+V.season = `
+<div class="page-h">
+  <div><h1>2026 秋季联赛</h1><p>赛季积分 · 3 站赛事 · 18 名选手</p></div>
+  <div class="sp"></div>
+  <button class="btn">积分规则</button>
+  <button class="btn">导出积分榜</button>
+  <button class="btn primary">添加赛事</button>
+</div>
+
+<div class="kpi">
+  <div class="k"><b>3</b><span>已结束站点</span></div>
+  <div class="k"><b>18</b><span>参赛选手</span></div>
+  <div class="k"><b>按排名</b><span>当前计分方式</span></div>
+  <div class="k"><b>叠加</b><span>阶段间累计</span></div>
+</div>
+
+<div class="split">
+  <div>
+    <section class="card">
+      <div class="card-h"><h3>赛季积分榜</h3><div class="sp"></div>
+        <div class="seg"><button class="on">总榜</button><button>按站点</button></div>
+      </div>
+      <div class="card-b tight">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th style="width:46px">名次</th><th style="min-width:130px">选手</th>
+              <th class="num" style="width:70px">总分</th><th class="num" style="width:60px">站数</th>
+              <th class="num" style="width:74px">第 1 站</th><th class="num" style="width:74px">第 2 站</th><th class="num" style="width:74px">第 3 站</th>
+              <th style="width:86px">最好名次</th>
+            </tr></thead>
+            <tbody>${SROWS_HTML}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="leg">第 2 站起启用「不叠加」：该站得分单独计算，前两站分数不保留 —— 选手总分以最近一个有比赛记录的站点为准。</div>
+    </section>
+  </div>
+
+  <div>
+    <section class="card">
+      <div class="card-h"><h3>计分规则</h3><div class="sp"></div><button class="btn sm ghost">编辑</button></div>
+      <div class="card-b" style="padding:6px 16px 10px">
+        <div class="rule-row"><span>计分单元</span><b>每站赛事</b></div>
+        <div class="rule-row"><span>默认方式</span><b>按排名</b></div>
+        <div class="rule-row"><span>第 1 名</span><b class="mono">100</b></div>
+        <div class="rule-row"><span>第 2 名</span><b class="mono">80</b></div>
+        <div class="rule-row"><span>第 3 名</span><b class="mono">65</b></div>
+        <div class="rule-row"><span>之后</span><b class="mono">每名 −5，最低 10</b></div>
+        <div class="rule-row"><span>阶段叠加</span><b>第 1–2 站叠加，第 3 站不叠加</b></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h3>站点</h3></div>
+      <div class="card-b" style="padding:6px 12px 10px">
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 4px;font-size:12.5px">
+          <span class="tag green">已结束</span><div style="flex:1">第 1 站 · 25 人</div><span class="mono" style="color:var(--fg-3);font-size:11.5px">按排名</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 4px;font-size:12.5px">
+          <span class="tag green">已结束</span><div style="flex:1">第 2 站 · 24 人</div><span class="mono" style="color:var(--fg-3);font-size:11.5px">按排名</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 4px;font-size:12.5px">
+          <span class="tag amber">进行中</span><div style="flex:1">第 3 站 · 25 人</div><span class="mono" style="color:var(--fg-3);font-size:11.5px">按胜场</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h3>口径说明</h3></div>
+      <div class="card-b" style="padding:10px 16px">
+        <div class="notice info"><div>进行中的站点<b>暂不计分</b>，结束后自动进入总榜。</div></div>
+      </div>
+    </section>
+  </div>
+</div>`;
+
+/* ---------- 切换 ---------- */
+var CUR = 'setup';
+function show(v){
+  CUR = v;
+  document.getElementById('page').innerHTML = V[v];
+  document.querySelectorAll('.nav').forEach(function(b){ b.classList.toggle('on', b.dataset.v === v); });
+  document.getElementById('ttl').textContent = v === 'season' ? '赛季积分' : '2026 秋季联赛 · 第 3 站';
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('.nav').forEach(function(b){
+  b.addEventListener('click', function(){ show(b.dataset.v); });
+});
+document.getElementById('bNew').addEventListener('click', function(){
+  document.body.classList.remove('legacy');
+  this.classList.add('on'); document.getElementById('bOld').classList.remove('on');
+});
+document.getElementById('bOld').addEventListener('click', function(){
+  document.body.classList.add('legacy');
+  this.classList.add('on'); document.getElementById('bNew').classList.remove('on');
+});
+if (location.search.indexOf('old=1') >= 0) {
+  document.body.classList.add('legacy');
+  document.getElementById('bOld').classList.add('on');
+  document.getElementById('bNew').classList.remove('on');
+}
+show((location.hash || '#setup').replace('#', ''));
+</script>
+</body>
+</html>

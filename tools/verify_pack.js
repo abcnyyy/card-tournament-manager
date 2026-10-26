@@ -52,6 +52,8 @@ for (const f of fs.readdirSync(path.join(ROOT, 'tools'))) {
   if (!/\.(js)$/.test(f)) continue;
   fs.copyFileSync(path.join(ROOT, 'tools', f), path.join(RUN_TOOLS, f));
 }
+// 截图输出目录：smoke 套件会往 tools/smoke_out 写 PNG，缺目录会直接报错
+ensureDir(path.join(RUN_TOOLS, 'smoke_out'));
 if (!fs.existsSync(RUN_APP)) {
   try { fs.symlinkSync(EXTAPP, RUN_APP, 'junction'); }
   catch (e) { fs.cpSync(EXTAPP, RUN_APP, { recursive: true }); }
