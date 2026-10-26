@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#F4F5F7">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>卡牌赛事编排</title>
@@ -13,35 +13,51 @@
 <body>
 <div class="app">
 
-  <div class="topbar">
-    <div>
-      <h1>卡牌赛事编排</h1>
+  <!-- ---------- 左侧导航（手机端变顶部横滑 chips） ---------- -->
+  <aside class="sidebar noprint">
+    <div class="brand">
+      <div class="brand-logo">CT</div>
+      <div>
+        <b>卡牌赛事编排</b>
+        <div class="brand-sub">本地离线 · 无需联网</div>
+      </div>
+    </div>
+
+    <nav class="tabs">
+      <button class="tab" data-view="list"><span class="tno">0</span>赛事列表</button>
+      <button class="tab active" data-view="setup"><span class="tno">1</span>赛事设置</button>
+      <button class="tab" data-view="players"><span class="tno">2</span>选手管理</button>
+      <button class="tab" data-view="matches"><span class="tno">3</span>对阵与录入</button>
+      <button class="tab" data-view="standing"><span class="tno">4</span>排名</button>
+      <button class="tab" data-view="export"><span class="tno">5</span>导出</button>
+      <button class="tab" data-view="season"><span class="tno">6</span>赛季积分</button>
+    </nav>
+
+    <div class="sidebar-foot" id="sideFoot">v2.1</div>
+  </aside>
+
+  <div class="content">
+
+    <div class="topbar">
       <div class="sub" id="topbarSub">未创建赛事</div>
+      <div class="right noprint">
+        <button class="btn" id="btnList">赛事列表</button>
+        <button class="btn" id="btnNew">新建赛事</button>
+        <button class="btn" id="btnSave">保存</button>
+        <button class="btn" id="btnLoad">载入存档</button>
+      </div>
     </div>
-    <div class="right noprint">
-      <button class="btn" id="btnList">赛事列表</button>
-      <button class="btn" id="btnNew">新建赛事</button>
-      <button class="btn" id="btnSave">保存</button>
-      <button class="btn" id="btnLoad">载入存档</button>
+
+    <div class="main">
+      <div id="view-list"     class="view" style="display:none"></div>
+      <div id="view-setup"    class="view"></div>
+      <div id="view-players"  class="view" style="display:none"></div>
+      <div id="view-matches"  class="view" style="display:none"></div>
+      <div id="view-standing" class="view" style="display:none"></div>
+      <div id="view-export"   class="view" style="display:none"></div>
+      <div id="view-season"   class="view" style="display:none"></div>
     </div>
-  </div>
 
-  <div class="tabs noprint">
-    <button class="tab" data-view="list">⓪ 赛事列表</button>
-    <button class="tab active" data-view="setup">① 赛事设置</button>
-    <button class="tab" data-view="players">② 选手管理</button>
-    <button class="tab" data-view="matches">③ 对阵与录入</button>
-    <button class="tab" data-view="standing">④ 排名</button>
-    <button class="tab" data-view="export">⑤ 导出</button>
-  </div>
-
-  <div class="main">
-    <div id="view-list"     class="view" style="display:none"></div>
-    <div id="view-setup"    class="view"></div>
-    <div id="view-players"  class="view" style="display:none"></div>
-    <div id="view-matches"  class="view" style="display:none"></div>
-    <div id="view-standing" class="view" style="display:none"></div>
-    <div id="view-export"   class="view" style="display:none"></div>
   </div>
 
 </div>
