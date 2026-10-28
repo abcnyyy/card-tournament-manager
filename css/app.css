@@ -1120,6 +1120,31 @@ tr.mateam > td { background: var(--surface-2); padding: 6px 10px; }
 .unit-row select { height: 28px; min-height: 28px; font-size: 12px; width: auto; }
 .unit-row .hint { flex: 1 1 100%; margin-top: -2px; }
 
+/* v2.4 赛季计分方式选择（三选一，卡片式按钮） */
+.plan-pick { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
+.plan-btn {
+  flex: 1 1 200px; min-width: 0; height: auto; min-height: 0;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  padding: 10px 12px; text-align: left; line-height: 1.35;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px;
+  box-shadow: none;
+}
+.plan-btn b { font-size: 13px; font-weight: 600; color: var(--fg); }
+.plan-btn span { font-size: 11.5px; color: var(--fg-3); white-space: normal; }
+.plan-btn:hover { border-color: var(--brand); }
+.plan-btn.on {
+  border-color: var(--brand); background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1px var(--brand);
+}
+.plan-btn.on b { color: var(--brand); }
+
+/* 逐阶段设置：每行末尾的分值摘要要留在同一行 */
+.unit-row .hint.se-pts {
+  flex: 1 1 180px; margin-top: 0; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px;
+}
+.se-unit { row-gap: 4px; }
+
 /* 规则摘要行 */
 .rule-row {
   display: flex; justify-content: space-between; gap: 10px;

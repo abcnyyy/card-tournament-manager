@@ -3229,12 +3229,116 @@
     return m + '·' + (r.unit === 'stage' ? '阶段' : '整站');
   }
 
+  /* ============ 赛季计分规则（v2.4） ============
+     三个方案，任选其一，界面只显示当前方案的设置，不再有「默认值 + 到处覆盖」那套层级：
+       site   —— 各站赛事用它自己的积分榜，赛季只做加总（推荐、新建默认）
+       single —— 赛季自己定一套分值，所有计分单元都用它（「只设置一个计分方法」）
+       stage  —— 每个阶段（计分单元）各自一套完整规则（「每个阶段分别设置」）
+     ---------------------------------------------------------- */
+  var seStageOpen = '';   // 逐阶段模式下正在编辑的单元 key
+
+  function seasonPlanName(plan) {
+    if (plan === 'site') return '各站自己的积分';
+    if (plan === 'stage') return '按阶段分别设置';
+    return '赛季统一计分';
+  }
+
+  // 分值一句话：按名次 →「第1 100 · 第2~3 80 · …」；按胜场 →「每胜 10 / 平 5 / 负 0」
+  function ptsRuleText(rule) {
+    if (!rule) return '—';
+    if (rule.mode === 'win') {
+      var w = rule.win || {};
+      var s = '每胜 ' + U.fmt(w.perWin) + ' / 平 ' + U.fmt(w.perDraw) + ' / 负 ' + U.fmt(w.perLoss);
+      if (parseFloat(w.base)) s += ' · 底分 ' + U.fmt(w.base);
+      return s;
+    }
+    var ts = ptsTiersOf(rule);
+    var parts = ts.slice(0, 3).map(function (t) {
+      var f = parseInt(t.from, 10) || 1, e = parseInt(t.to, 10) || f;
+      return (f === e ? ('第' + f) : ('第' + f + '~' + e)) + ' ' + U.fmt(t.pts);
+    });
+    if (ts.length > 3) parts.push('…');
+    return parts.join(' · ');
+  }
+
+  function seasonPlanBtn(plan, now, title, sub) {
+    return '<button class="btn plan-btn' + (now === plan ? ' on' : '') + '" data-act="seasonPlan" data-plan="' + plan + '">' +
+      '<b>' + title + '</b><span>' + sub + '</span></button>';
+  }
+
+  // 逐阶段模式下，单个阶段的档位编辑器（值和方式都直接写进该阶段自己的规则里）
+  function seTierGrid(key, rule) {
+    var tiers = ptsTiersOf(rule);
+    var h = '<div class="tier-list">';
+    tiers.forEach(function (t, i) {
+      var f = parseInt(t.from, 10) || (i + 1);
+      var e = parseInt(t.to, 10) || f;
+      h += '<div class="tier-row">' +
+        '<span class="tno">' + (i + 1) + '</span>' +
+        '<span class="tsep">第</span>' +
+        '<input class="tn" type="number" min="1" data-se-unit="' + esc(key) + '" data-se-path="rank.tiers[' + i + '].from" value="' + f + '">' +
+        '<span class="tsep">~</span>' +
+        '<input class="tn" type="number" min="1" data-se-unit="' + esc(key) + '" data-se-path="rank.tiers[' + i + '].to" value="' + e + '">' +
+        '<span class="tsep">名</span>' +
+        '<input class="tp" type="number" min="0" data-se-unit="' + esc(key) + '" data-se-path="rank.tiers[' + i + '].pts" value="' +
+        (parseFloat(t.pts) || 0) + '">' +
+        '<span class="tsep">分</span>' +
+        '<button class="btn sm ghost tdel" data-act="seTierDel" data-key="' + esc(key) + '" data-i="' + i + '">删除</button>' +
+        '</div>';
+    });
+    h += '</div>';
+    h += '<div class="row pts-tools">' +
+      '<button class="btn sm" data-act="seTierAdd" data-key="' + esc(key) + '">+ 加一档</button>' +
+      '<button class="btn sm ghost" data-act="seFill" data-key="' + esc(key) + '">延伸最后一档到第 N 名</button>' +
+      '</div>';
+    return h;
+  }
+
+  // 某一阶段的完整规则编辑区（方式 + 分值 + 是否叠加）
+  function seStageRuleHTML(se, u) {
+    var key = u.key;
+    var ov = E.seasonStageRule(se, key);
+    var h = '<div class="grid2">' +
+      sfld('计分方法',
+        '<select data-se-unit="' + esc(key) + '" data-se-path="mode">' +
+        '<option value="rank"' + (ov.mode !== 'win' ? ' selected' : '') + '>按名次</option>' +
+        '<option value="win"' + (ov.mode === 'win' ? ' selected' : '') + '>按胜场</option>' +
+        '</select>') +
+      sfld('与上一阶段',
+        '<select data-se-unit="' + esc(key) + '" data-se-path="stack">' +
+        '<option value="1"' + (ov.stack !== false ? ' selected' : '') + '>叠加（累加）</option>' +
+        '<option value="0"' + (ov.stack === false ? ' selected' : '') + '>不叠加（重新起算）</option>' +
+        '</select>') +
+      '</div>';
+
+    if (ov.mode === 'win') {
+      h += '<div class="grid4">' +
+        sfld('每胜一场', '<input type="number" data-se-unit="' + esc(key) + '" data-se-path="win.perWin" value="' + U.fmt(ov.win.perWin) + '">') +
+        sfld('每平一场', '<input type="number" data-se-unit="' + esc(key) + '" data-se-path="win.perDraw" value="' + U.fmt(ov.win.perDraw) + '">') +
+        sfld('每负一场', '<input type="number" data-se-unit="' + esc(key) + '" data-se-path="win.perLoss" value="' + U.fmt(ov.win.perLoss) + '">') +
+        sfld('参赛基础分', '<input type="number" data-se-unit="' + esc(key) + '" data-se-path="win.base" value="' + U.fmt(ov.win.base) + '">') +
+        '</div>';
+    } else {
+      h += '<h4 style="margin-top:10px">名次分档</h4>' + seTierGrid(key, ov);
+      var lastTo = 0;
+      ptsTiersOf(ov).forEach(function (t) { lastTo = Math.max(lastTo, parseInt(t.to, 10) || parseInt(t.from, 10) || 0); });
+      h += '<div class="grid2">' +
+        sfld('之后每降 1 名扣', '<input type="number" min="0" data-se-unit="' + esc(key) + '" data-se-path="rank.step" value="' + U.fmt(ov.rank.step) + '">',
+          '第 ' + (lastTo + 1) + ' 名起按这个步长递减') +
+        sfld('最低分', '<input type="number" min="0" data-se-unit="' + esc(key) + '" data-se-path="rank.floor" value="' + U.fmt(ov.rank.floor) + '">',
+          '扣到这个分数就不再往下扣') +
+        '</div>';
+    }
+    return h;
+  }
+
   function seasonRuleSummary(se, tab, list) {
     var r = se.rule;
-    var src = (tab && tab.source) || r.source || 'tournament';
+    var plan = E.seasonPlan(se);
     var h = '';
-    if (src === 'tournament') {
-      h += '<div class="rule-row"><span>计分来源</span><b>各站赛事自己的积分榜</b></div>';
+    h += '<div class="rule-row"><span>计分方式</span><b>' + seasonPlanName(plan) + '</b></div>';
+
+    if (plan === 'site') {
       h += '<div class="rule-row"><span>赛季负责</span><b>只做加总</b></div>';
       h += '<div class="rule-row"><span>站点之间</span><b>' +
         (r.stack ? '累加' : '不叠加（重新起算）') + '</b></div>';
@@ -3257,54 +3361,65 @@
       return h;
     }
 
+    var unitStage = (plan === 'stage') || r.unit === 'stage';
     h += '<div class="rule-row"><span>计分单元</span><b>' +
-      (r.unit === 'stage' ? '每站赛事内的每个阶段' : '每站赛事（整站一次）') + '</b></div>';
-    h += '<div class="rule-row"><span>默认方式</span><b>' +
-      (r.mode === 'win' ? '按胜场' : '按名次') + '</b></div>';
-    if (r.mode === 'rank') {
-      var ts2 = ptsTiersOf(r);
-      h += '<div class="rule-row"><span>名次分档</span><b class="mono" style="font-size:12px">' +
-        ts2.map(function (t) {
-          var f = parseInt(t.from, 10) || 1, e = parseInt(t.to, 10) || f;
-          return (f === e ? ('第' + f) : ('第' + f + '~' + e)) + '：' + U.fmt(t.pts);
-        }).join('　') + '</b></div>';
-      h += '<div class="rule-row"><span>之后</span><b class="mono">每名 −' + U.fmt(r.rank.step) +
-        '，最低 ' + U.fmt(r.rank.floor) + '</b></div>';
+      (unitStage ? '每个阶段各算一次' : '每站赛事算一次') + '</b></div>';
+
+    if (plan === 'stage') {
+      h += '<div class="hint" style="margin-top:10px">每个阶段各自的计分方法</div>';
+      ((tab && tab.units) || []).forEach(function (u) {
+        var ru = E.seasonRuleFor(se, u);
+        h += '<div class="rule-row"><span title="' + esc(u.label) + '">' + esc(unitShortLabel(u)) + '</span>' +
+          '<b style="font-size:12px">' + esc(ptsModeName(ru.mode) + ' · ' + ptsRuleText(ru)) +
+          (ru.stack === false ? ' · 不叠加' : '') + '</b></div>';
+      });
+      if (!((tab && tab.units) || []).length) {
+        h += '<div class="hint">还没有可计分的阶段。把赛事归入本赛季并打完至少一个阶段。</div>';
+      }
     } else {
-      h += '<div class="rule-row"><span>每胜 / 每平</span><b class="mono">+' + U.fmt(r.win.perWin) +
-        ' / +' + U.fmt(r.win.perDraw) + '</b></div>';
-      h += '<div class="rule-row"><span>参赛基础分</span><b class="mono">' + U.fmt(r.win.base) + '</b></div>';
+      h += '<div class="rule-row"><span>计分方法</span><b>' + (r.mode === 'win' ? '按胜场' : '按名次') + '</b></div>';
+      h += '<div class="rule-row"><span>分值</span><b class="mono" style="font-size:12px">' + esc(ptsRuleText(r)) + '</b></div>';
+      if (r.mode === 'rank') {
+        h += '<div class="rule-row"><span>之后</span><b class="mono">每名 −' + U.fmt(r.rank.step) +
+          '，最低 ' + U.fmt(r.rank.floor) + '</b></div>';
+      }
     }
-    h += '<div class="rule-row"><span>阶段叠加</span><b>' +
-      (r.stack ? '叠加（逐站累加）' : '不叠加（重新起算）') + '</b></div>';
+    h += '<div class="rule-row"><span>阶段之间</span><b>' + (r.stack ? '叠加（累加）' : '不叠加（重新起算）') + '</b></div>';
     if (!r.stack) {
       h += '<div class="rule-row"><span>重新起算范围</span><b>' +
         (r.resetScope === 'all' ? '全榜清零' : '只重置进入该单元的人') + '</b></div>';
     }
-    h += '<div class="rule-row"><span>进行中的站点</span><b>' +
+    h += '<div class="rule-row"><span>进行中的单元</span><b>' +
       (r.includeRunning ? '先按当前排名计入' : '暂不计分（标待定）') + '</b></div>';
-    if (tab && tab.units && tab.units.some(function (u) { return u.mode && u.mode !== r.mode; })) {
-      h += '<div class="rule-row"><span>个别单元</span><b>有自定义（见下方站点）</b></div>';
-    }
     return h;
   }
 
   function seasonRuleForm(se, tab, list) {
     var r = se.rule;
     var p = 'rule.';
-    var src = (tab && tab.source) || r.source || 'tournament';
+    var plan = E.seasonPlan(se);
     var h = '';
 
-    /* ---- 只做加总（推荐）：各站用自己的积分体系 ---- */
-    if (src === 'tournament') {
-      h += '<div class="hint" style="margin-bottom:12px">本赛季<b>只做加总</b>：每站先用它自己的积分榜规则算出该站分数，' +
-        '赛季再把这些分按下面的方式加起来。要改分值请打开对应赛事，在「赛事设置 → 赛事积分榜」里改。</div>';
-      h += '<h4>站点之间的叠加</h4>';
-      h += '<div class="row" style="margin-bottom:8px"><label class="switch">' +
+    /* ---- 1) 先选方案：只有三种，选完下面只显示这一种的设置 ---- */
+    h += '<h4>选一种计分方式</h4>';
+    h += '<div class="plan-pick">' +
+      seasonPlanBtn('site', plan, '各站自己的积分', '各站用自己的积分榜算分，赛季只加总（推荐）') +
+      seasonPlanBtn('single', plan, '赛季统一一套分值', '只设一种计分方法，所有阶段都用它') +
+      seasonPlanBtn('stage', plan, '每个阶段分别设置', '每个阶段单独设计分方法和分值') +
+      '</div>';
+    h += '<div class="hint" style="margin:8px 0 14px">' +
+      (plan === 'site'
+        ? '分值在<b>各赛事自己的「赛事积分榜」</b>里设置；赛季只负责把各站分数相加。'
+        : (plan === 'single'
+          ? '这里设一套分值，<b>所有计分单元都用它</b>。想给某个阶段换一种算法，改选「每个阶段分别设置」。'
+          : '每个阶段下面都能单独选<b>按名次 / 按胜场</b>并单独填分值，互不影响。')) +
+      '</div>';
+
+    /* ---- 2A) 各站自己的积分：只管叠加 ---- */
+    if (plan === 'site') {
+      h += '<label class="switch" style="margin-bottom:6px">' +
         '<input type="checkbox" data-sbind="' + p + 'stack"' + (r.stack ? ' checked' : '') + '>' +
-        '<span>与之前的站点叠加（累加）</span></label></div>';
-      h += '<div class="hint" style="margin-bottom:10px">勾选 = 每站的积分都保留、相加；' +
-        '不勾选 = 进入该站时重新起算，之前的分数不保留。</div>';
+        '<span>各站积分累加（不勾 = 每站重新起算）</span></label>';
       if (!r.stack) {
         h += sfld('重新起算范围',
           '<select data-sbind="' + p + 'resetScope">' +
@@ -3315,10 +3430,10 @@
       h += '<div class="row"><label class="switch"><input type="checkbox" data-sbind="' + p + 'includeRunning"' +
         (r.includeRunning ? ' checked' : '') + '><span>进行中的站点也先按当前排名计入</span></label></div>';
 
-      var units = (tab && tab.units) || [];
-      if (units.length) {
+      var units0 = (tab && tab.units) || [];
+      if (units0.length) {
         h += '<h4>单站叠加方式（可单独覆盖）</h4>';
-        units.forEach(function (u) {
+        units0.forEach(function (u) {
           var ov = se.rule.overrides[u.key] || {};
           h += '<div class="unit-row">' +
             seasonStatusTag(u.status) +
@@ -3332,89 +3447,101 @@
             '</div>';
         });
       }
-      h += '<div class="row" style="margin-top:14px">' +
-        '<button class="btn" data-act="seasonSrc" data-src="season">改用赛季统一规则（老口径）</button>' +
-        '<span class="hint">统一规则 = 赛季自己定义一套分值，覆盖各站赛事自己的设置。</span></div>';
       return h;
     }
 
-    /* ---- 老口径：赛季统一规则 ---- */
-    h += '<div class="hint" style="margin-bottom:12px">本赛季用<b>赛季统一规则</b>：不管各站赛事自己怎么设，' +
-      '赛季按下面这套分值重新算。若想让各站各算各的，点最下面的「改用各站自己的积分规则」。</div>';
-    h += '<div class="grid2">';
-    h += sfld('计分单元',
-      '<select data-sbind="' + p + 'unit">' +
-      '<option value="tournament"' + (r.unit === 'tournament' ? ' selected' : '') + '>每站赛事算一次分</option>' +
-      '<option value="stage"' + (r.unit === 'stage' ? ' selected' : '') + '>站内每个阶段各算一次</option>' +
-      '</select>');
-    h += sfld('计分方式',
-      '<select data-sbind="' + p + 'mode">' +
-      '<option value="rank"' + (r.mode === 'rank' ? ' selected' : '') + '>按名次</option>' +
-      '<option value="win"' + (r.mode === 'win' ? ' selected' : '') + '>按胜场</option>' +
-      '</select>');
-    h += '</div>';
-
-    if (r.mode === 'rank') {
-      h += '<h4>按名次计分（几个名次一档）</h4>' + ptsRankGridHTML('rule', r, 'data-sbind');
-      var lastTo = 0;
-      ptsTiersOf(r).forEach(function (t) { lastTo = Math.max(lastTo, parseInt(t.to, 10) || parseInt(t.from, 10) || 0); });
-      h += '<div class="grid2">' +
-        sfld('之后每降 1 名扣', '<input type="number" min="0" data-sbind="' + p + 'rank.step" value="' +
-          U.fmt(r.rank.step) + '">', '第 ' + (lastTo + 1) + ' 名起按这个步长递减') +
-        sfld('最低分', '<input type="number" min="0" data-sbind="' + p + 'rank.floor" value="' +
-          U.fmt(r.rank.floor) + '">', '扣到这个分数就不再往下扣') +
-        '</div>';
-    } else {
-      h += '<h4>按胜场计分</h4><div class="grid2">';
-      h += sfld('每胜一场', '<input type="number" data-sbind="' + p + 'win.perWin" value="' + U.fmt(r.win.perWin) + '">');
-      h += sfld('每平一场', '<input type="number" data-sbind="' + p + 'win.perDraw" value="' + U.fmt(r.win.perDraw) + '">');
-      h += sfld('每负一场', '<input type="number" data-sbind="' + p + 'win.perLoss" value="' + U.fmt(r.win.perLoss) + '">');
-      h += sfld('参赛基础分', '<input type="number" data-sbind="' + p + 'win.base" value="' + U.fmt(r.win.base) + '">');
-      h += '</div>';
-    }
-
-    h += '<h4>叠加方式</h4>';
-    h += '<div class="row" style="margin-bottom:8px">' +
-      '<label class="switch"><input type="checkbox" data-sbind="' + p + 'stack"' + (r.stack ? ' checked' : '') + '>' +
-      '<span>与之前的计分单元叠加（累加）</span></label></div>';
-    h += '<div class="hint" style="margin-bottom:10px">勾选 = 每个单元的分都保留、相加；' +
-      '不勾选 = 进入该单元的选手重新起算，之前的分数不保留。</div>';
-    if (!r.stack) {
-      h += sfld('重新起算范围',
-        '<select data-sbind="' + p + 'resetScope">' +
-        '<option value="participants"' + (r.resetScope === 'participants' ? ' selected' : '') + '>只重置进入该单元的人（其余人保留原分）</option>' +
-        '<option value="all"' + (r.resetScope === 'all' ? ' selected' : '') + '>全榜清零（没参加的人也归零）</option>' +
-        '</select>');
-    }
-    h += '<div class="row"><label class="switch"><input type="checkbox" data-sbind="' + p + 'includeRunning"' +
-      (r.includeRunning ? ' checked' : '') + '>' +
-      '<span>进行中的站点也先按当前排名计入</span></label></div>';
-
-    if (tab && tab.units.length) {
-      h += '<h4>单个单元（可单独覆盖）</h4>';
-      tab.units.forEach(function (u) {
-        var ov = se.rule.overrides[u.key] || {};
-        h += '<div class="unit-row">' +
-          seasonStatusTag(u.status) +
-          '<span class="uname" title="' + esc(u.label) + '">' + esc(u.label) + '</span>' +
-          '<select data-unit-rule="mode" data-key="' + esc(u.key) + '">' +
-          '<option value="">方式：跟随默认</option>' +
-          '<option value="rank"' + (ov.mode === 'rank' ? ' selected' : '') + '>按名次</option>' +
-          '<option value="win"' + (ov.mode === 'win' ? ' selected' : '') + '>按胜场</option>' +
-          '</select>' +
-          '<select data-unit-rule="stack" data-key="' + esc(u.key) + '">' +
-          '<option value="">叠加：跟随默认</option>' +
-          '<option value="1"' + (ov.stack === true ? ' selected' : '') + '>叠加</option>' +
-          '<option value="0"' + (ov.stack === false ? ' selected' : '') + '>不叠加</option>' +
-          '</select>' +
-          '</div>';
+    /* ---- 2B) 赛季统一计分：一套分值 ---- */
+    if (plan === 'single') {
+      // 老赛季可能残留「某个阶段单独设过方式/分值」，这里明确提示并给一键清除，避免偷偷生效
+      var stale = Object.keys(r.overrides || {}).filter(function (k) {
+        var o = r.overrides[k] || {};
+        return ['rank', 'win'].indexOf(o.mode) >= 0 || (o.rank && (o.rank.tiers || o.rank.top)) || o.win;
       });
+      if (stale.length) {
+        h += '<div class="notice" style="margin-bottom:12px">有 <b>' + stale.length +
+          '</b> 个阶段还留着以前的单独计分设置，会覆盖下面这套统一分值。' +
+          '<button class="btn sm" style="margin-left:8px" data-act="seStageClearOverrides">清除，全部按统一计分</button></div>';
+      }
+      h += '<div class="grid2">';
+      h += sfld('计分单元',
+        '<select data-sbind="' + p + 'unit">' +
+        '<option value="tournament"' + (r.unit !== 'stage' ? ' selected' : '') + '>每站赛事算一次分</option>' +
+        '<option value="stage"' + (r.unit === 'stage' ? ' selected' : '') + '>站内每个阶段各算一次</option>' +
+        '</select>');
+      h += sfld('计分方法',
+        '<select data-sbind="' + p + 'mode">' +
+        '<option value="rank"' + (r.mode !== 'win' ? ' selected' : '') + '>按名次</option>' +
+        '<option value="win"' + (r.mode === 'win' ? ' selected' : '') + '>按胜场</option>' +
+        '</select>');
+      h += '</div>';
+
+      if (r.mode === 'rank') {
+        h += '<h4>按名次计分（几个名次一档）</h4>' + ptsRankGridHTML('rule', r, 'data-sbind');
+        var lastTo = 0;
+        ptsTiersOf(r).forEach(function (t) { lastTo = Math.max(lastTo, parseInt(t.to, 10) || parseInt(t.from, 10) || 0); });
+        h += '<div class="grid2">' +
+          sfld('之后每降 1 名扣', '<input type="number" min="0" data-sbind="' + p + 'rank.step" value="' +
+            U.fmt(r.rank.step) + '">', '第 ' + (lastTo + 1) + ' 名起按这个步长递减') +
+          sfld('最低分', '<input type="number" min="0" data-sbind="' + p + 'rank.floor" value="' +
+            U.fmt(r.rank.floor) + '">', '扣到这个分数就不再往下扣') +
+          '</div>';
+      } else {
+        h += '<h4>按胜场计分</h4><div class="grid4">';
+        h += sfld('每胜一场', '<input type="number" data-sbind="' + p + 'win.perWin" value="' + U.fmt(r.win.perWin) + '">');
+        h += sfld('每平一场', '<input type="number" data-sbind="' + p + 'win.perDraw" value="' + U.fmt(r.win.perDraw) + '">');
+        h += sfld('每负一场', '<input type="number" data-sbind="' + p + 'win.perLoss" value="' + U.fmt(r.win.perLoss) + '">');
+        h += sfld('参赛基础分', '<input type="number" data-sbind="' + p + 'win.base" value="' + U.fmt(r.win.base) + '">');
+        h += '</div>';
+      }
+
+      h += '<h4>叠加方式</h4>';
+      h += '<div class="row" style="margin-bottom:8px">' +
+        '<label class="switch"><input type="checkbox" data-sbind="' + p + 'stack"' + (r.stack ? ' checked' : '') + '>' +
+        '<span>与之前的计分单元叠加（累加）</span></label></div>';
+      if (!r.stack) {
+        h += sfld('重新起算范围',
+          '<select data-sbind="' + p + 'resetScope">' +
+          '<option value="participants"' + (r.resetScope === 'participants' ? ' selected' : '') + '>只重置进入该单元的人（其余人保留原分）</option>' +
+          '<option value="all"' + (r.resetScope === 'all' ? ' selected' : '') + '>全榜清零（没参加的人也归零）</option>' +
+          '</select>');
+      }
+      h += '<div class="row"><label class="switch"><input type="checkbox" data-sbind="' + p + 'includeRunning"' +
+        (r.includeRunning ? ' checked' : '') + '><span>进行中的单元也先按当前排名计入</span></label></div>';
+      return h;
     }
-    h += '<div class="row" style="margin-top:14px">' +
-      '<button class="btn primary" data-act="seasonSrc" data-src="tournament">改用各站自己的积分规则</button>' +
-      '<span class="hint">各站分值在赛事自己的「赛事积分榜」里设置，赛季只加总。</span></div>';
+
+    /* ---- 2C) 每个阶段分别设置：每个单元一套完整规则 ---- */
+    var units = (tab && tab.units) || [];
+    h += '<div class="hint" style="margin-bottom:10px">下面是本赛季的每个阶段。' +
+      '点「设置」就能单独改它的<b>计分方法 + 分值 + 是否叠加</b>，互不影响。' +
+      '新加入的赛事 / 新打完的阶段会自动带一份初始规则（起点 = 赛季统一那套），改过就以你改的为准。</div>';
+    if (!units.length) {
+      h += '<div class="notice empty">还没有可计分的阶段。把赛事加入本赛季并打完至少一个阶段后，这里会出现对应设置。</div>';
+    }
+    units.forEach(function (u) {
+      var ov = E.seasonStageRule(se, u.key);
+      var open = (seStageOpen === u.key);
+      h += '<div class="unit-row se-unit">' +
+        seasonStatusTag(u.status) +
+        '<span class="uname" title="' + esc(u.label) + '">' + esc(u.label) + '</span>' +
+        '<span class="tag ' + (ov.mode === 'win' ? 'draw' : '') + '">' + ptsModeName(ov.mode) + '</span>' +
+        '<span class="hint se-pts">' + esc(ptsRuleText(ov)) + (ov.stack === false ? ' · 不叠加' : '') + '</span>' +
+        '<button class="btn sm' + (open ? ' primary' : '') + '" data-act="seStageToggle" data-key="' + esc(u.key) + '">' +
+        (open ? '收起' : '设置') + '</button>' +
+        '</div>';
+      if (open) h += '<div class="sub-panel">' + seStageRuleHTML(se, u) + '</div>';
+    });
+    h += '<div class="row" style="margin-top:10px">' +
+      '<label class="switch"><input type="checkbox" data-sbind="' + p + 'includeRunning"' + (r.includeRunning ? ' checked' : '') + '>' +
+      '<span>进行中的阶段也先按当前排名计入</span></label></div>';
+    if (units.length) {
+      h += '<div class="row" style="margin-top:10px">' +
+        '<button class="btn sm ghost" data-act="seStageResetAll">全部按「统一计分」那套重新开始</button>' +
+        '<span class="hint">把每个阶段的设置还原成同一套分值，再逐个改。</span></div>';
+    }
     return h;
   }
+
 
   function renderSeason() {
     var seasons = S.loadSeasons();
@@ -3423,17 +3550,26 @@
     if (!se) return seasonListHTML(seasons);
 
     var list = S.tournamentsOfSeason(se.id);
+    // 逐阶段模式：新加入的赛事 / 新打完的阶段自动补一份独立规则，界面才有东西可改
+    if (E.seasonPlan(se) === 'stage') {
+      if (E.seasonSyncStageRules(se, E.seasonUnits(se, list))) S.putSeason(se);
+    }
     var tab = E.seasonTable(se, list);
     var counted = tab.units.filter(function (u) { return u.counted; });
     var live = tab.units.filter(function (u) { return !u.counted; });
     var bySite = (tab.source !== 'season');
+    var plan = E.seasonPlan(se);
+    var planLabel = (plan === 'site' ? '各站自定'
+      : (plan === 'stage' ? '逐阶段设置' : '赛季统一'));
 
     var h = '<div class="page-h"><div><h1>' + esc(se.name) + '</h1><p>' +
       list.length + ' 站赛事 · ' + tab.rows.length + ' 名选手 · ' +
       (bySite
         ? '各站积分加总'
-        : ((se.rule.unit === 'stage' ? '按阶段计分' : '按站计分') +
-          (se.rule.mode === 'win' ? ' · 按胜场' : ' · 按名次'))) +
+        : (plan === 'stage'
+          ? '逐阶段计分（每个阶段单独设置）'
+          : ('赛季统一计分 · ' + (se.rule.unit === 'stage' ? '按阶段' : '按站') +
+            (se.rule.mode === 'win' ? ' · 按胜场' : ' · 按名次')))) +
       (se.rule.stack ? ' · 累加' : ' · 不叠加') + '</p></div></div>';
 
     /* ---- 顶部操作 ---- */
@@ -3450,7 +3586,7 @@
     h += '<div class="kpi">' +
       '<div class="k"><b>' + counted.length + '</b><span>已计入的单元</span></div>' +
       '<div class="k"><b>' + tab.rows.length + '</b><span>参赛选手</span></div>' +
-      '<div class="k"><b>' + (bySite ? '各站自定' : '赛季统一') + '</b><span>计分来源</span></div>' +
+      '<div class="k"><b>' + planLabel + '</b><span>计分方式</span></div>' +
       '<div class="k"><b>' + (se.rule.stack ? '叠加' : '不叠加') + '</b><span>单元之间</span></div>' +
       '</div>';
 
@@ -3458,7 +3594,7 @@
 
     /* ---- 积分榜（只列已计入的单元；未计分的在下方提示） ---- */
     var shown = tab.units.filter(function (u) { return u.counted; });
-    var stopsTitle = (bySite || se.rule.unit !== 'stage') ? '站数' : '阶段数';
+    var stopsTitle = (!bySite && (plan === 'stage' || se.rule.unit === 'stage')) ? '阶段数' : '站数';
     var head = '<th style="width:52px">名次</th><th style="min-width:130px">选手</th>' +
       '<th class="unit" style="width:66px">总分</th><th class="unit" style="width:56px">' + stopsTitle + '</th>' +
       '<th class="unit" style="width:70px">最好</th>';
@@ -3550,9 +3686,11 @@
       '<div class="hint" style="line-height:1.7">' +
       '· 选手按<b>姓名</b>跨赛事识别（忽略大小写与多余空格），同名会被视为同一人。<br>' +
       '· 名次取该单元结束时（或整站结束时）的最终排名，并列同名次。<br>' +
-      (bySite
+      (plan === 'site'
         ? '· 每站的分值来自该赛事<b>自己的积分榜</b>（在赛事设置里改），赛季只做加总；没有启用积分榜的赛事不计分。<br>'
-        : '· 本赛季走<b>赛季统一规则</b>：下面这套分值会覆盖各站赛事自己的设置。<br>') +
+        : (plan === 'stage'
+          ? '· 本赛季走<b>逐阶段计分</b>：每个阶段在「积分规则」里都有自己的一套计分方法，互不影响。<br>'
+          : '· 本赛季走<b>赛季统一计分</b>：所有计分单元都用同一套分值，改一处即全部生效。<br>')) +
       '· 站点下方的小字表示该站的计分方式与是否启用。' +
       '</div></section>';
 
@@ -3570,7 +3708,6 @@
     lines.push(head.map(cell).join(','));
     tab.rows.forEach(function (r) {
       var row = [r.pos, r.name];
-      if (advOn) row.push(E.rankAdv(rule, r.best || r.pos) ? '晋级' : '');
       row.push(U.fmt(r.total), r.stops, r.best || '');
       tab.units.forEach(function (u) {
         var x = r.units[u.key];
@@ -3582,10 +3719,13 @@
   }
 
   function seasonHTMLReport(se, tab) {
+    var plan = E.seasonPlan(se);
     var h = '<h1 style="font-size:20px;margin:0 0 6px">' + esc(se.name) + ' · 赛季积分榜</h1>';
     h += '<div style="font-size:12px;margin-bottom:12px">生成时间：' + esc(U.now()) +
-      ' · 计分方式：' + (tab.source !== 'season' ? '各站积分加总'
-        : (se.rule.mode === 'win' ? '按胜场' : '按名次')) +
+      ' · 计分方式：' + (plan === 'site' ? '各站积分加总'
+        : (plan === 'stage' ? '逐阶段设置'
+          : (se.rule.unit === 'stage' ? '赛季统一（按阶段）' : '赛季统一（按站）') +
+            (se.rule.mode === 'win' ? ' · 按胜场' : ' · 按名次'))) +
       ' · ' + (se.rule.stack ? '逐单元累加' : '不叠加（重新起算）') + '</div>';
     h += '<table><thead><tr><th>名次</th><th>选手</th><th>总分</th><th>场数</th><th>最好</th>';
     tab.units.forEach(function (u) { h += '<th>' + esc(u.label) + '</th>'; });
@@ -4753,6 +4893,121 @@
     acts.ptsMore = acts.ptsTierAdd;
     acts.ptsSpread = acts.ptsTierAdd;
 
+    /* ---------- 赛季：选计分方式（v2.4） ---------- */
+    function curSeason() {
+      return curSeasonId ? S.getSeason(curSeasonId) : null;
+    }
+    acts.seasonPlan = function (el) {
+      var se = curSeason();
+      if (!se) return;
+      var want = el.getAttribute('data-plan');
+      var now = E.seasonPlan(se);
+      if (want === now) return;
+      function apply() {
+        if (want === 'site') {
+          se.rule.source = 'tournament';
+        } else {
+          se.rule.source = 'season';
+          se.rule.plan = (want === 'stage') ? 'stage' : 'single';
+          if (want === 'stage') {
+            se.rule.unit = 'stage';
+            // 立刻给每个阶段一份完整规则，否则界面上会是一片“没设置”
+            E.seasonSyncStageRules(se, E.seasonUnits(se, S.tournamentsOfSeason(se.id)));
+          }
+        }
+        S.putSeason(se);
+        seStageOpen = '';
+        render();
+        toast(want === 'site' ? '已改为各站自己的积分（赛季只加总）'
+          : (want === 'stage' ? '已改为每个阶段分别设置' : '已改为赛季统一计分'));
+      }
+      if (now === 'site' || want === 'site') {
+        ask('改用「' + seasonPlanName(want) + '」',
+          '切换后积分榜会按新口径重算（原来那套设置会保留，随时可以改回来）。确定吗？',
+          function (yes) { if (yes) apply(); }, '切换');
+        return;
+      }
+      apply();
+    };
+    // 逐阶段模式：展开 / 收起某个阶段的设置
+    acts.seStageToggle = function (el) {
+      var k = el.getAttribute('data-key') || '';
+      seStageOpen = (seStageOpen === k) ? '' : k;
+      render();
+    };
+    // 逐阶段模式下的档位增删
+    function seStageOwner(key) {
+      var se = curSeason();
+      if (!se || !key) return null;
+      return { se: se, ov: E.seasonStageRule(se, key) };
+    }
+    function seCommit(se, msg) { S.putSeason(se); render(); if (msg) toast(msg); }
+    // 清除各阶段残留的计分规则（统一计分模式下用）
+    acts.seStageClearOverrides = function () {
+      var se = curSeason();
+      if (!se) return;
+      ask('清除各阶段的单独设置', '清掉后所有阶段都用同一套统一分值。确定吗？', function (yes) {
+        if (!yes) return;
+        Object.keys(se.rule.overrides || {}).forEach(function (k) {
+          var o = se.rule.overrides[k] || {};
+          delete o.mode; delete o.rank; delete o.win;
+          if (!Object.keys(o).length) delete se.rule.overrides[k];
+        });
+        seStageOpen = '';
+        seCommit(se, '已清除各阶段的单独设置');
+      }, '清除');
+    };
+    // 把每个阶段的独立规则整体重置为「统一计分」那套
+    acts.seStageResetAll = function () {
+      var se = curSeason();
+      if (!se) return;
+      ask('重置每个阶段的设置', '所有阶段会变回同一套分值（= 当前「统一计分」的设置），之后可以逐个再改。确定吗？',
+        function (yes) {
+          if (!yes) return;
+          var units = E.seasonUnits(se, S.tournamentsOfSeason(se.id));
+          se.rule.overrides = {};
+          E.seasonSyncStageRules(se, units);
+          seStageOpen = '';
+          seCommit(se, '已按统一计分重设每个阶段');
+        }, '重置');
+    };
+    acts.seTierAdd = function (el) {
+      var o = seStageOwner(el.getAttribute('data-key'));
+      if (!o) return;
+      var tiers = o.ov.rank.tiers;
+      var last = tiers[tiers.length - 1] || { from: 1, to: 1, pts: 100 };
+      var lastTo = parseInt(last.to, 10) || parseInt(last.from, 10) || 1;
+      var width = Math.max(1, (parseInt(last.to, 10) || 1) - (parseInt(last.from, 10) || 1) + 1);
+      var step = parseFloat(o.ov.rank.step) || 0;
+      var floor = parseFloat(o.ov.rank.floor) || 0;
+      var from = lastTo + 1;
+      tiers.push({ from: from, to: from + width - 1, pts: Math.max(floor, (parseFloat(last.pts) || 0) - width * step), adv: false });
+      seCommit(o.se, '已加一档');
+    };
+    acts.seTierDel = function (el) {
+      var o = seStageOwner(el.getAttribute('data-key'));
+      if (!o) return;
+      var i = parseInt(el.getAttribute('data-i'), 10);
+      if (!(i >= 0)) return;
+      if (o.ov.rank.tiers.length <= 1) { toast('至少保留一档', true); return; }
+      o.ov.rank.tiers.splice(i, 1);
+      seCommit(o.se, '已删除一档');
+    };
+    acts.seFill = function (el) {
+      var o = seStageOwner(el.getAttribute('data-key'));
+      if (!o) return;
+      askInput('最后一档延伸到第几名', '32', function (v) {
+        if (v === null) return;
+        var n = parseInt(v, 10);
+        if (!(n >= 1)) { toast('请输入 1 以上的整数', true); return; }
+        var last = o.ov.rank.tiers[o.ov.rank.tiers.length - 1];
+        var from = parseInt(last.from, 10) || 1;
+        if (n < from) { toast('要大于第 ' + from + ' 名', true); return; }
+        last.to = n;
+        seCommit(o.se, '最后一档已覆盖到第 ' + n + ' 名');
+      }, '这一段名次同分，之后的按步长递减', '延伸');
+    };
+
     // 给某个阶段单独一套积分规则（复制当前赛事规则作为起点）
     acts.ptsStageEdit = function (el) {
       if (!T) return;
@@ -4792,27 +5047,12 @@
       });
     };
 
-    /* ---------- 赛季计分来源切换 ---------- */
+    /* ---------- 赛季计分来源切换（v2.4：统一走 seasonPlan，这里只做旧接口兼容） ---------- */
     acts.seasonSrc = function (el) {
-      var se = curSeasonId ? S.getSeason(curSeasonId) : null;
-      if (!se) return;
       var target = el.getAttribute('data-src');
-      if (target === 'tournament') {
-        se.rule.source = 'tournament';
-        S.putSeason(se);
-        render();
-        toast('已改用各站自己的积分规则，赛季只做加总');
-        return;
-      }
-      ask('改用赛季统一规则',
-        '切换后赛季会按自己的一套分值重算，各站赛事自己的积分榜设置将被忽略。确定吗？',
-        function (yes) {
-          if (!yes) return;
-          se.rule.source = 'season';
-          S.putSeason(se);
-          render();
-          toast('已改用赛季统一规则');
-        }, '切换');
+      acts.seasonPlan({
+        getAttribute: function () { return target === 'tournament' ? 'site' : 'single'; }
+      });
     };
     function exDone(r) {
       if (!r || r.canceled) return;
@@ -4979,6 +5219,28 @@
     });
 
     document.addEventListener('change', function (e) {
+      /* ---- 赛季「逐阶段设置」里的单阶段字段 ---- */
+      var seU = e.target.closest('[data-se-unit]');
+      if (seU) {
+        if (!curSeasonId) return;
+        var se2 = S.getSeason(curSeasonId);
+        if (!se2) return;
+        var sKey = seU.getAttribute('data-se-unit');
+        var sRel = seU.getAttribute('data-se-path') || '';
+        var sOv = E.seasonStageRule(se2, sKey);
+        var sVal;
+        if (seU.type === 'checkbox') sVal = seU.checked;
+        else if (seU.type === 'number') {
+          sVal = seU.value === '' ? 0 : (parseFloat(seU.value) || 0);
+          if (seU.value === '' && /(^|\.)(from|to)$/.test(sRel)) sVal = 1;
+        } else if (sRel === 'stack') {
+          sVal = (seU.value === '1');       // 叠加开关要存成布尔，存字符串会退回默认值
+        } else sVal = seU.value;
+        setPath(sOv, sRel, sVal);
+        S.putSeason(se2);
+        render();
+        return;
+      }
       /* ---- 赛季规则字段 ---- */
       var seEl = e.target.closest('[data-sbind]');
       if (seEl) {

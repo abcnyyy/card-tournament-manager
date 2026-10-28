@@ -721,8 +721,12 @@
   M.defaultSeasonRule = function () {
     return {
       source: 'tournament',
+      // ★ v2.4：计分方案（取消原来的「默认设置 + 逐单元覆盖」两层结构）
+      //   'single' = 整个赛季只用一套计分方法（下面 unit 决定是「每站一次」还是「每阶段一次」）
+      //   'stage'  = 每个计分单元（每个阶段）各自一套计分方法，互不影响
+      //   仅 source='season' 时生效；source='tournament' 时恒按各站自己的积分加总
+      plan: 'single',
       // unit: tournament = 每站赛事算一次分；stage = 赛事内每个阶段各算一次
-      //   仅 source='season' 时生效；source='tournament' 时恒按站加总
       unit: 'tournament',
       stack: true,              // 是否与之前的计分单元累加
       mode: 'rank',             // rank = 按名次；win = 按胜场
@@ -734,7 +738,9 @@
       win: { perWin: 10, perDraw: 5, perLoss: 0, base: 0 },
       resetScope: 'participants', // 不叠加时：participants 只重置进入该单元的人 / all 全榜重置
       includeRunning: false,      // 进行中的单元是否先计入
-      overrides: {}               // key: 't:<tid>' 或 't:<tid>#<阶段序号>'
+      // 逐单元（逐阶段）规则：plan='stage' 时每个 key 是一套完整规则（和上面同结构）
+      // key: 't:<tid>' 或 't:<tid>#<阶段序号>'
+      overrides: {}
     };
   };
 
@@ -755,6 +761,8 @@
     var d = M.defaultSeasonRule();
     // 旧赛季没有 source 字段 → 保持原来的「赛季统一规则」行为，不能悄悄改口径
     var rawSource = (s.rule && s.rule.source) || '';
+    // plan 也必须先取原始值：Object.assign 会把默认的 'single' 盖进来
+    var rawPlan = (s.rule && s.rule.plan) || '';
     s.rule = Object.assign({}, d, s.rule || {});
     var srcRank = (s.rule && s.rule.rank) || {};
     var hadTiers = Array.isArray(srcRank.tiers) && srcRank.tiers.length > 0;
@@ -769,6 +777,17 @@
     if (!s.rule.rank.tiers.length) s.rule.rank.tiers = d.rank.tiers.map(function (t) { return Object.assign({}, t); });
     s.rule.win = Object.assign({}, d.win, s.rule.win || {});
     if (!s.rule.overrides || typeof s.rule.overrides !== 'object') s.rule.overrides = {};
+    // 逐单元规则：只做清洗，不补齐（旧的「只改叠加方式」覆盖要能继续跟随统一规则）
+    Object.keys(s.rule.overrides).forEach(function (k) {
+      var ov = s.rule.overrides[k];
+      if (!ov || typeof ov !== 'object') { delete s.rule.overrides[k]; return; }
+      if (['rank', 'win'].indexOf(ov.mode) < 0) delete ov.mode;
+      if (typeof ov.stack !== 'boolean') delete ov.stack;
+      if (!ov.rank || typeof ov.rank !== 'object') delete ov.rank;
+      else if (Array.isArray(ov.rank.tiers) && ov.rank.tiers.length) ov.rank.tiers = M.normalizeTiers(ov.rank.tiers);
+      if (!ov.win || typeof ov.win !== 'object') delete ov.win;
+      if (!Object.keys(ov).length) delete s.rule.overrides[k];
+    });
     if (['tournament', 'stage'].indexOf(s.rule.unit) < 0) s.rule.unit = 'tournament';
     if (['rank', 'win'].indexOf(s.rule.mode) < 0) s.rule.mode = 'rank';
     if (typeof s.rule.stack !== 'boolean') s.rule.stack = true;
@@ -777,6 +796,17 @@
     if (!(parseFloat(s.rule.rank.step) >= 0)) s.rule.rank.step = d.rank.step;
     if (!(parseFloat(s.rule.rank.floor) >= 0)) s.rule.rank.floor = d.rank.floor;
     s.rule.source = (['tournament', 'season'].indexOf(rawSource) >= 0) ? rawSource : 'season';
+    // plan（v2.4）：显式存过就照存；老赛季没有这个字段时按「有没有阶段级计分规则」推断
+    if (rawPlan === 'stage' || rawPlan === 'single') {
+      s.rule.plan = rawPlan;
+    } else {
+      var hasUnitRule = Object.keys(s.rule.overrides).some(function (k) {
+        var o = s.rule.overrides[k] || {};
+        return ['rank', 'win'].indexOf(o.mode) >= 0;
+      });
+      s.rule.plan = (s.rule.unit === 'stage' && hasUnitRule) ? 'stage' : 'single';
+    }
+    if (s.rule.plan === 'stage') s.rule.unit = 'stage';
     return s;
   };
 
