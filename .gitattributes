@@ -1,0 +1,33 @@
+# 统一行尾：仓库内一律 LF，避免 Windows 上编辑后整文件 diff
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF，否则 cmd 解析 goto/label 会出错
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制文件不做任何转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.icns binary
+*.pdf  binary
+*.zip  binary
+*.exe  binary
+*.apk  binary
+*.jar  binary
+*.aar  binary
+*.asar binary
+*.dll  binary
+*.so   binary
+*.node binary
+*.ttf  binary
+*.woff binary
+*.woff2 binary
+*.keystore binary
+*.jks  binary
+
+# 打包/安卓构建产物永不入库
+dist/**          export-ignore
+android/.gradle/** export-ignore
