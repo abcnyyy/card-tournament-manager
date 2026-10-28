@@ -74,6 +74,7 @@ async function shot(name) {
 
   const env = Object.assign({}, process.env);
   delete env.ELECTRON_RUN_AS_NODE;   // 本机注入了此变量会让 Electron 退化成 Node
+  env.TMS_SMOKE_HIDDEN = '1';        // 窗口移到屏幕外 + 全透明 + 不进任务栏：绝不弹窗打扰用户
   const child = spawn(EXE, [
     '--no-sandbox', '--disable-gpu', `--remote-debugging-port=${PORT}`, '--force-device-scale-factor=1'
   ], { env, detached: false });

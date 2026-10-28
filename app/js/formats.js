@@ -106,29 +106,39 @@
    * 在一个分数段内穷举配对，尽量避开已交手过的对手。
    * pool: [playerId]（已按排名排序）
    * playedSet: { 'a|b': true }
-   * 返回 pairs: [[a,b], ...]，可能含 [x, null] 的轮空项
+   * 返回 pairs: [[a,b], ...]；仅当池子为奇数时才会出现 1 个 [x, null] 轮空项。
+   *
+   * 注意（v2.4 修复）：以前这里允许「每个人都轮空」这种解，而且找到新解就无条件覆盖 best，
+   * 结果偶数人的池子也可能返回一堆 [x, null] ——界面上就表现为「选手莫名其妙获得轮空」，
+   * 而且是同一个人 / 好几个人同时轮空。现在：
+   *   ① 只有奇数池才允许轮空，且至多 1 次；
+   *   ② 只有「重复交手更少」的解才会替换当前最优解；
+   *   ③ 轮空本身也算一次「代价」，所以不会为了让重复更少而把偶数池拆成两个轮空。
    */
   F.avoidRepeats = function (pool, playedSet) {
     var n = pool.length;
     if (n === 0) return [];
     if (n === 1) return [[pool[0], null]];
 
+    var allowBye = (n % 2 === 1);   // 偶数人绝对不产生轮空
     var used = new Array(n), pairs = [], best = null, count = 0;
     var LIMIT = 60000;
 
     function conflict(i, j) {
       return !!playedSet[U.pairKey(pool[i], pool[j])];
     }
-    function dfs(idx, bad) {
+    function dfs(idx, bad, byeUsed) {
       if (count > LIMIT) return;
       count++;
       if (idx === n) {
-        best = pairs.map(function (p) { return p.slice(); });
-        best.bad = bad;
-        if (bad === 0) { count = LIMIT + 1; } // 完美解，立即停止
+        if (!best || bad < best.bad) {
+          best = pairs.map(function (p) { return p.slice(); });
+          best.bad = bad;
+          if (bad === 0) { count = LIMIT + 1; } // 完美解，立即停止
+        }
         return;
       }
-      if (used[idx]) { dfs(idx + 1, bad); return; }
+      if (used[idx]) { dfs(idx + 1, bad, byeUsed); return; }
       var i = idx;
       for (var j = i + 1; j < n; j++) {
         if (used[j]) continue;
@@ -136,21 +146,21 @@
         if (bad + c >= (best ? best.bad : 9999)) continue; // 剪枝：不再可能更优
         used[i] = used[j] = 1;
         pairs.push([pool[i], pool[j]]);
-        dfs(idx + 1, bad + c);
+        dfs(idx + 1, bad + c, byeUsed);
         pairs.pop();
         used[i] = used[j] = 0;
         if (count > LIMIT) return;
       }
-      // 允许 idx 轮空（奇数人时）
-      if (!used[i]) {
+      // 只有奇数人才允许 1 次轮空，而且要确实比当前最优解更好才值得尝试
+      if (allowBye && !byeUsed && bad + 1 < (best ? best.bad : 9999)) {
         used[i] = 1;
         pairs.push([pool[i], null]);
-        dfs(idx + 1, bad + 1);
+        dfs(idx + 1, bad + 1, true);
         pairs.pop();
         used[i] = 0;
       }
     }
-    dfs(0, 0);
+    dfs(0, 0, false);
     return best || F.chunkPairs(pool);
   };
 

@@ -370,9 +370,9 @@ async function waitReady() {
   await sleep(600);
   await click('[data-act="seasonRules"]');
   await sleep(500);
-  const srcBtn = await ev(`!!document.querySelector('[data-act="seasonSrc"][data-src="season"]')`);
-  ok('加总模式里能切到「统一规则」', srcBtn === true);
-  await click('[data-act="seasonSrc"][data-src="season"]');
+  const srcBtn = await ev(`document.querySelectorAll('.plan-btn').length`);
+  ok('规则里三种计分方式都列出来了（v2.4 起不再用「改用…」按钮）', srcBtn === 3, srcBtn);
+  await click('[data-act="seasonPlan"][data-plan="single"]');
   await sleep(300);
   await ev(`(function(){var b=document.getElementById('modalOk'); if(b) b.click(); return 1})()`);
   await sleep(600);
@@ -380,18 +380,17 @@ async function waitReady() {
     return {mode: !!document.querySelector('[data-sbind="rule.mode"]'),
       head:(document.querySelector('.page-h p')||{}).innerText||''};
   })()`);
-  ok('切换后出现「赛季统一规则」表单', unified.mode === true, unified);
+  ok('切换后出现「赛季统一计分」表单', unified.mode === true, unified);
   ok('页头不再写「各站积分加总」', !/各站积分加总/.test(unified.head), unified.head);
   await shot('v25_season_unified.png');
 
-  await ev(`(function(){
-    var b=document.querySelector('[data-act="seasonSrc"][data-src="tournament"]');
-    if(!b) return 'none'; b.click(); return 'ok';
-  })()`);
+  await click('[data-act="seasonPlan"][data-plan="site"]');
+  await sleep(300);
+  await ev(`(function(){var b=document.getElementById('modalOk'); if(b) b.click(); return 1})()`);
   await sleep(600);
   const backAgg = await ev(`(function(){
     return {head:(document.querySelector('.page-h p')||{}).innerText||'',
-      form: !!document.querySelector('[data-act="seasonSrc"][data-src="season"]')};
+      on:(document.querySelector('.plan-btn.on')||{}).getAttribute?document.querySelector('.plan-btn.on').getAttribute('data-plan'):''};
   })()`);
   ok('能切回「各站自己的积分规则」', /各站积分加总/.test(backAgg.head), backAgg.head);
 

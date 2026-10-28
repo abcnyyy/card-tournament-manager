@@ -24,11 +24,11 @@ strong { font-weight:800; }
 a { color:#000; text-decoration:underline; }
 @media print { body{background:#fff} .page{max-width:none;border:none;padding:0} h2{page-break-after:avoid} table{page-break-inside:avoid} }
 @media (max-width: 700px) { .page{padding:28px 20px;border:none} body{font-size:15px} h1{font-size:24px} }
-</style></head><body><div class="page"><h1>卡牌赛事编排 · 使用说明（v2.3）</h1>
+</style></head><body><div class="page"><h1>卡牌赛事编排 · 使用说明（v2.4）</h1>
 <blockquote>一款<strong>纯本地离线</strong>的赛事编排 / 计时记分工具。支持瑞士轮、单败、双败、循环赛、小组赛，<br>可自由组合成多阶段赛程，局制与记分规则可按阶段分别设置；支持「局 → 回合」两级比赛单位、<br>团体赛（n 对 n / 征服 / KOF，每个回合可换人）。全部数据保存在本机，不联网、不上传。</blockquote>
 <hr>
 <h2>一、两种形态</h2>
-<table><thead><tr><th>形态</th><th>文件</th><th>说明</th></tr></thead><tbody><tr><td>Windows 绿色版</td><td><code>卡牌赛事编排 1.13.0.exe</code></td><td>单个 exe，双击即用，无需安装，可放 U 盘</td></tr><tr><td>Windows 安装版</td><td><code>卡牌赛事编排 Setup 1.13.0.exe</code></td><td>安装到本机，生成开始菜单/桌面快捷方式</td></tr><tr><td>Android</td><td><code>卡牌赛事编排 1.13.0.apk</code></td><td>手机 / 平板安装，界面自适应竖屏</td></tr></tbody></table>
+<table><thead><tr><th>形态</th><th>文件</th><th>说明</th></tr></thead><tbody><tr><td>Windows 绿色版</td><td><code>卡牌赛事编排 2.4.exe</code></td><td>单个 exe，双击即用，无需安装，可放 U 盘</td></tr><tr><td>Windows 安装版</td><td><code>卡牌赛事编排 Setup 2.4.exe</code></td><td>安装到本机，生成开始菜单/桌面快捷方式</td></tr><tr><td>Android</td><td><code>卡牌赛事编排 2.4.apk</code></td><td>手机 / 平板安装，界面自适应竖屏</td></tr></tbody></table>
 <blockquote>v1.11.0 起应用正式更名为 <strong>卡牌赛事编排</strong>（原「赛事编排系统」），功能与操作完全不变，旧存档可直接沿用。</blockquote>
 <p><strong>不需要</strong> Java、Node、.NET 等任何运行环境；<strong>不需要</strong>联网。</p>
 <h3>安装提示</h3>
@@ -80,6 +80,7 @@ a { color:#000; text-decoration:underline; }
 <h3>3.5 轮空规则（人数为奇数时）</h3>
 <p><strong>轮空全部由系统自动判定</strong>，生成轮次时直接排好，并按「轮空分」自动计分，不需要你指定：</p>
 <table><thead><tr><th>选项</th><th>说明</th></tr></thead><tbody><tr><td>自动：首轮随机，之后给最低分（默认）</td><td>首轮随机，之后让积分最低者轮空，且每人最多轮空一次</td></tr><tr><td>自动：始终给当前积分最低者</td><td>每轮都由当时积分最低者轮空</td></tr><tr><td>自动：每轮随机抽一人</td><td>完全随机</td></tr><tr><td>自动排好后，我自己在「手动编排」里改</td><td>系统先自动排好，不满意再去对阵页手动换人</td></tr></tbody></table>
+<p><strong>轮空只跟「这一轮能不能两两配对」有关</strong>：参赛人数为奇数时<strong>正好 1 人</strong>轮空，偶数时<strong>一个都不会有</strong>。<br>开了「提前晋级 / 提前淘汰」也一样 —— 被锁定的人退出配对后，如果剩下奇数人才会有 1 人轮空，<br>不会出现「两个人都轮空」「谁都不是的空轮空」「同一个人连着轮空」。<br>（v2.4 修的就是这类情况：以前配对算法在「大家都交过手」时会把好几个人同时判成轮空。）</p>
 <p><strong>轮空在排名中按「一场胜利」计算</strong>：轮空者的场次 +1、胜场 +1，同时另记一个「轮空次数」。<br>所以 7 人瑞士轮里轮空过一次的人，排名表上就是「4 场 3 胜」而不是「3 场 3 胜」，<br>按胜场数、胜率比较时不会被轮空吃亏。</p>
 <h3>3.6 比赛计时器（每场限时 + 到点自动结算）</h3>
 <p>「③ 赛事设置 → 比赛计时器」：</p>
@@ -265,18 +266,30 @@ P2  警告 [0]   判负 [0]</code></pre>
 <ul><li>赛事里每个打过比赛的阶段各发一次分，同一站内可以累加；</li><li><strong>阶段之间怎么合</strong>（v2.0）：赛事设置里有默认值（「与之前的阶段叠加」）， <strong>每个阶段还能自己单独定</strong>——在「赛程阶段 → 该阶段 → <strong>阶段积分</strong>」里选：</li><li><strong>跟随赛事默认</strong>（下拉里会写出当前默认是「叠加」还是「不叠加」）；</li><li><strong>与上一阶段叠加（累加）</strong>；</li><li><strong>不叠加：只有晋级到本阶段的人重新起算</strong>（晋级到这个阶段的人<strong>只拿本阶段这一笔分</strong>，之前的分数不带过来）；</li><li>不叠加时还可以选 <strong>只重置进入该阶段的人</strong> 或 <strong>全榜清零</strong>（在积分卡片下方「重新起算范围」）；</li><li>卡片下方 <strong>「阶段单独设置」</strong> 会把每个阶段列出来，点 <strong>「单独设置」</strong> 就能给这个阶段一套<strong>独立的</strong>规则 （默认复制当前赛事规则，可以自己改方式、分档、胜场分）。改完这一行会标「单独设置 · 按胜场」， 点 <strong>「恢复默认」</strong> 就跟着赛事默认走。</li></ul>
 <blockquote>典型用法 1：一站里「小组赛（按胜场，每胜 3 分）+ 八强淘汰赛（按名次，100 / 80 / 65 …）」，<br>小组赛阶段单独设成按胜场，淘汰赛阶段跟随赛事默认的名次分。<br><br>典型用法 2：<strong>「资格赛晋级的选手单独给分、不带之前的分数」</strong> —— 把第 2 阶段的「阶段积分」设成<br>「不叠加」，晋级的人只拿这一阶段的分，前面积累的清零。</blockquote>
 <blockquote>注意：阶段独立规则只在「计分单元 = 站内每个阶段各算一次」时生效。<br>整站计分时，卡片上会有一行提示提醒你这一点。</blockquote>
-<h3>13.5 赛季：只做加总</h3>
-<ol><li>左侧导航 <strong>「赛季积分」</strong> → 输入赛季名称 → <strong>新建赛季</strong>（新赛季默认就是「各站积分加总」）；</li><li>到 <strong>「赛事列表」</strong>，用每行的 <strong>「赛季」</strong> 下拉把赛事归入这个赛季；</li><li>回到赛季详情，积分榜自动出现。每个站点用的是<strong>它自己的积分体系</strong>。</li></ol>
+<h3>13.5 赛季计分：先选一种方式（v2.4 重做）</h3>
+<p>赛季页 <strong>「积分规则」</strong> 面板最上面只有<strong>三个选项</strong>，选哪个，下面只显示那一种的设置：</p>
+<table><thead><tr><th>选法</th><th>适合什么场景</th><th>分值在哪里设</th></tr></thead><tbody><tr><td><strong>各站自己的积分</strong>（推荐、新建默认）</td><td>每站规则不一样，赛季只负责累计</td><td>各赛事 <strong>「赛事设置 → 赛事积分榜」</strong></td></tr><tr><td><strong>赛季统一一套分值</strong></td><td>整个赛季一把尺子，只设<strong>一种</strong>计分方法</td><td>赛季「积分规则」里的一套分值</td></tr><tr><td><strong>每个阶段分别设置</strong></td><td>各阶段给分不一样（如资格赛按胜场、淘汰赛按名次）</td><td>每个阶段展开后单独设，互不影响</td></tr></tbody></table>
+<blockquote>以前那种「先设一套默认值，再逐单元覆盖」的两层结构已经取消 —— 正是它让人搞不清到底哪一层生效。<br>现在<strong>只有一层</strong>：选中哪种，就只按那种算。</blockquote>
+<h3>13.6 各站自己的积分（推荐）</h3>
+<ol><li>左侧导航 <strong>「赛季积分」</strong> → 输入赛季名称 → <strong>新建赛季</strong>；</li><li>到 <strong>「赛事列表」</strong>，用每行的 <strong>「赛季」</strong> 下拉把赛事归入这个赛季；</li><li>回到赛季详情，积分榜自动出现。每个站点用的是<strong>它自己的积分体系</strong>。</li></ol>
 <p>赛季层面只剩三个开关（「积分规则」里）：</p>
-<table><thead><tr><th>设置</th><th>作用</th></tr></thead><tbody><tr><td><strong>与之前的站点叠加</strong></td><td>勾选 = 各站分数累加；不勾选 = 进入新一站时重新起算</td></tr><tr><td><strong>重新起算范围</strong></td><td>不叠加时：只重置参加该站的人 / 全榜清零</td></tr><tr><td><strong>进行中的站点也先按当前排名计入</strong></td><td>默认不计，打完并结束阶段后自动进榜</td></tr></tbody></table>
+<table><thead><tr><th>设置</th><th>作用</th></tr></thead><tbody><tr><td><strong>各站积分累加</strong></td><td>勾选 = 各站分数累加；不勾选 = 进入新一站时重新起算</td></tr><tr><td><strong>重新起算范围</strong></td><td>不叠加时：只重置参加该站的人 / 全榜清零</td></tr><tr><td><strong>进行中的站点也先按当前排名计入</strong></td><td>默认不计，打完并结束阶段后自动进榜</td></tr></tbody></table>
 <p>单站还能单独改「叠加 / 不叠加」，用来做「最后一站一锤定音」。</p>
-<h3>13.6 还想用「赛季统一规则」？</h3>
-<p>v1.12 的老做法是「赛季自己定一套分值，覆盖所有站点」。这套仍然保留：<br>在赛季的「积分规则」里点 <strong>「改用赛季统一规则（老口径）」</strong> 即可切换，弹窗里会有提醒。</p>
-<ul><li><strong>旧存档会自动继续用老口径</strong>（升级后积分不会变化），需要时可以一键切到「各站自己的积分规则」；</li><li>两种模式都支持「按名次 / 按胜场」「整站 / 按阶段」「叠加 / 不叠加」，也都能按单元单独覆盖。</li></ul>
-<h3>13.7 几个口径</h3>
+<h3>13.7 赛季统一一套分值</h3>
+<p>选 <strong>「赛季统一一套分值」</strong> 后，赛季自己定义<strong>一套</strong>规则，所有计分单元都用它：</p>
+<table><thead><tr><th>设置</th><th>说明</th></tr></thead><tbody><tr><td><strong>计分单元</strong></td><td>每站赛事算一次分 / 站内每个阶段各算一次</td></tr><tr><td><strong>计分方法</strong></td><td>按名次（名次档位表）/ 按胜场（胜、平、负、底分）</td></tr><tr><td><strong>叠加方式</strong></td><td>单元之间累加，或不叠加重新起算</td></tr></tbody></table>
+<p>改任何一项，积分榜<strong>立刻</strong>按新分值重算。</p>
+<blockquote>老存档里如果还留着「某个阶段单独设过方式/分值」，面板里会出现一条提示和<br><strong>「清除，全部按统一计分」</strong> 按钮 —— 点一下就把残留清掉，避免它偷偷生效。</blockquote>
+<h3>13.8 每个阶段分别设置（原「逐阶段覆盖」的正名）</h3>
+<p>选 <strong>「每个阶段分别设置」</strong> 后，赛季会列出<strong>每个计分单元（每个阶段）</strong> 一行，点「设置」展开：</p>
+<table><thead><tr><th>可改的项</th><th>说明</th></tr></thead><tbody><tr><td><strong>计分方法</strong></td><td>这个阶段按名次 / 按胜场（可以和别的阶段不同）</td></tr><tr><td><strong>分值</strong></td><td>按名次 → 名次档位表 + 每降 1 名扣几分 + 最低分；按胜场 → 胜 / 平 / 负 / 底分</td></tr><tr><td><strong>与上一阶段</strong></td><td>叠加（累加）/ 不叠加（重新起算）</td></tr></tbody></table>
+<ul><li>展开的卡片里，<strong>方式、分值、叠加都能改</strong>（v2.4 以前这里只能改方式，分值改不动，已修好）；</li><li>每行右侧会直接显示这个阶段当前的分值摘要，不展开也能核对；</li><li>新加入的赛事 / 新打完的阶段会自动带一份初始规则（起点 = 「赛季统一一套分值」那套），随时可改；</li><li>想推倒重来：面板底部 <strong>「全部按「统一计分」那套重新开始」</strong>。</li></ul>
+<h3>13.9 几个口径</h3>
 <ul><li><strong>只统计已结束的单元</strong>；进行中的站点灰显「待定」，不参与排名（可勾选先计入）。</li><li><strong>选手按姓名跨赛事识别</strong>：忽略大小写、全角空格、多余空白（<code>JCLE</code>、<code>jcle</code>、<code> JCLE </code> 是同一个人）。 <strong>同名会被合并</strong>，要区分请在名字里加后缀（如「张三 A」）。</li><li><strong>名次来源</strong>：淘汰赛取对阵结果顺序（冠军 → 亚军 → 四强 → …），其余赛制取积分榜名次。</li><li><strong>没启用积分榜的赛事不计分</strong>：赛季会明确提示「没有启用赛事积分榜，本站暂不计分」。</li><li><strong>导出</strong>：赛事「排名」页可导出赛事积分榜 CSV；赛季详情可导出赛季积分榜 CSV、打印积分榜（黑白细线，可直接发 PDF）。</li></ul>
 <hr>
 <h2>十四、版本记录</h2>
+<p><strong>v2.4</strong></p>
+<ul><li><strong>赛季积分设置重做</strong>（见 13.5）：取消「默认值 + 逐单元覆盖」的两层结构，改成<strong>三选一</strong>： 「各站自己的积分（推荐）」「赛季统一一套分值（只设一种计分方法）」「每个阶段分别设置」。 界面只显示当前选中那一种的设置，不会再搞不清哪一层生效。</li><li><strong>修复：选了「每个阶段分别设置」却改不动</strong>。以前这里每个阶段只能改「方式」和「是否叠加」， 分值始终是固有那套；现在每个阶段都有完整的 <strong>计分方法 + 分值档位 / 胜场分 + 叠加方式</strong>， 改完立刻重算，落盘成该阶段自己的规则。</li><li><strong>老赛季自动兼容</strong>：只有「叠加方式」覆盖的旧存档口径完全不变； 带阶段级计分规则的旧存档自动识别为「每个阶段分别设置」。 统一计分模式下若还残留旧的逐阶段规则，面板会提示并给一键清除。</li><li><strong>修复：开启「提前晋级 / 淘汰」后有人莫名其妙轮空</strong>。根因是瑞士轮配对在「同分的人几乎都交过手」时 把「大家都轮空」当成可行解，还会互相覆盖最优解 —— 表现为同一轮冒出好几个轮空、或同一个人反复轮空。 现在：偶数人绝不产生轮空、奇数人<strong>至多 1 个</strong>、且只接受更优解。</li><li><strong>修复：循环赛人数为奇数时整轮卡死</strong>。循环赛表里的「空对手」以前没被标成轮空， 那一轮永远显示「未完成」。现在正确标记为轮空并按轮空分计分。</li><li>新增引擎专项 33 项（<code>tools/test_v32.js</code>）+ 界面专项 35 项（<code>tools/smoke_v32.js</code>），全量回归全绿。</li></ul>
 <p><strong>v2.3</strong></p>
 <ul><li><strong>小分里的「阶段得分」细化为逐阶段</strong>（3.4）：</li><li>新增 <code>第 1 阶段得分</code>、<code>第 2 阶段得分</code>…… 作为<strong>互相独立的破同依据</strong>， 在「添加依据」下拉里按赛程长度动态列出，可选任意几段、可单独排序 / 单独移除；</li><li>排名表按实际用到的阶段逐列显示（<code>第 1 阶段分</code>、<code>第 2 阶段分</code>…），不用的不占列宽；</li><li>原来的「上一阶段得分」保留为「相对当前阶段的上一段」口径，旧赛事升级后表现不变</li><li><strong>警告 / 判负进入小分</strong>（7.2）：</li><li>每桌「明细」新增 <code>警告</code> / <code>判负</code> 数字框（0–99），改完即生效，<strong>不影响本场胜负</strong>；</li><li>卡片标题右侧对记过数的比赛显示红色徽标，不展开也能看见；</li><li>破同默认顺序改为 <strong>积分 → 判负次数 → 警告次数 → 对手分 → …</strong>， 两项都是「越少越靠前」，即<strong>先比判负、再比警告</strong>；</li><li>排名表新增「判负 / 警告」两列（非 0 标红），排名 CSV 同步导出这两列</li><li>引擎新增 <code>E.penOf / E.penSet / E.penAny</code>（警告判负读写与汇总），<code>stats.forfeits / stats.warnings</code> 与逐阶段 <code>stats.stagePts</code>；<code>M.stageTieKey / M.stageTieIdx / M.tieName</code> 统一逐阶段键名与中文名</li><li>新增引擎专项 <code>tools/test_v31.js</code>（44 项）+ 界面专项 <code>tools/smoke_v31.js</code>（39 项），全量回归全绿</li></ul>
 <p><strong>v2.2</strong></p>

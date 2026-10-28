@@ -2077,10 +2077,23 @@
       if (stage.roundsData.length === 0) {
         var all = F.roundRobinRounds(alive, stage.cycles);
         stage.roundsData = all.map(function (prs, idx) {
-          return { index: idx, matches: prs.map(function (p) { return E.mkMatch(idx, p[0], p[1], null); }) };
+          return {
+            index: idx, matches: prs.map(function (p) {
+              var m = E.mkMatch(idx, p[0], p[1], null);
+              // 人数为奇数时循环表里会出现「对手为空」的一桌 —— 那就是轮空，
+              // 必须打上 isBye，否则这一轮永远“没打完”，也没人知道他在轮空
+              if (!p[0] || !p[1]) m.isBye = true;
+              return m;
+            })
+          };
         });
         stage.roundsData.forEach(function (rd) {
-          rd.matches.forEach(function (m) { E.evaluate(m, E.fmtOfMatch(t, stage, m), stage.tie); });
+          rd.matches.forEach(function (m) {
+            E.evaluate(m, E.fmtOfMatch(t, stage, m), stage.tie);
+            if (!m.isBye) return;
+            var pb0 = t.players.filter(function (x) { return x.id === (m.playerA || m.playerB); })[0];
+            if (pb0) pb0.hasBye = true;
+          });
         });
         return { ok: true, generated: stage.roundsData.length };
       }
@@ -2176,7 +2189,8 @@
       var bm = E.mkMatch(rIdx, p[0] || p[1], null, null);
       bm.isBye = true;
       return bm;
-    });
+    // 兜底：两边都空的“空桌”不能留给轮次，否则这一轮永远打不完
+    }).filter(function (m) { return !!(m.playerA || m.playerB); });
     extraMatches.forEach(function (m) { m.round = rIdx; matches.push(m); });
     byes.forEach(function (b) {
       var m = E.mkMatch(rIdx, b, null, null);
@@ -4948,16 +4962,30 @@
   };
 
   /**
+   * 赛季的计分方案（v2.4）
+   *   'site'   —— 各站赛事用它自己的积分榜算分，赛季只加总（推荐，默认）
+   *   'single' —— 赛季自己定一套计分方法，所有计分单元都用它
+   *   'stage'  —— 每个阶段（计分单元）各有一套计分方法，互不影响
+   */
+  E.seasonPlan = function (season) {
+    var r = (season && season.rule) || {};
+    if (r.source !== 'season') return 'site';
+    return (r.plan === 'stage') ? 'stage' : 'single';
+  };
+
+  /**
    * 列出赛季的计分单元
    *   rule.unit = 'tournament' → 每站赛事一个单元
    *   rule.unit = 'stage'      → 赛事内每个有对阵的阶段各一个单元
+   *   plan = 'stage'           → 恒定按「阶段」分单元
    */
   E.seasonUnits = function (season, tlist) {
     var out = [];
-    var src = ((season && season.rule && season.rule.source) === 'season') ? 'season' : 'tournament';
+    var plan = E.seasonPlan(season);
+    var src = (plan === 'site') ? 'tournament' : 'season';
     // source='tournament' 时赛季只加总，单元恒为「站」；站内怎么算由该站自己的积分规则决定
     var unit = (src === 'season')
-      ? (((season && season.rule && season.rule.unit) === 'stage') ? 'stage' : 'tournament')
+      ? ((plan === 'stage' || (season.rule && season.rule.unit === 'stage')) ? 'stage' : 'tournament')
       : 'tournament';
     (tlist || []).forEach(function (t) {
       var stages = t.stages || [];
@@ -4991,20 +5019,71 @@
     return out;
   };
 
-  // 某个单元最终生效的规则（默认值 + 单元覆盖）
+  /**
+   * 某个单元最终生效的规则（默认值 + 单元覆盖）
+   * v2.4：单元覆盖里写了的字段就生效（方式 / 名次档位 / 胜场分 / 叠加），
+   *       没写就跟随统一规则 —— 这样「每个阶段分别设置」才能真正改分值，
+   *       而老赛季那种「只覆盖叠加方式」的存档行为保持不变。
+   */
   E.seasonRuleFor = function (season, unit) {
     var base = (season && season.rule) || {};
     var ov = ((base.overrides || {})[unit.key]) || {};
     var rank = Object.assign({}, base.rank || {});
+    if (Array.isArray(rank.tiers)) {
+      rank.tiers = rank.tiers.map(function (t) { return Object.assign({}, t); });
+    }
+    if (ov.rank) {
+      if (Array.isArray(ov.rank.tiers) && ov.rank.tiers.length) {
+        rank.tiers = ov.rank.tiers.map(function (t) { return Object.assign({}, t); });
+      }
+      if (ov.rank.step !== undefined && ov.rank.step !== null) rank.step = ov.rank.step;
+      if (ov.rank.floor !== undefined && ov.rank.floor !== null) rank.floor = ov.rank.floor;
+      if (ov.rank.top) rank.top = Object.assign({}, rank.top || {}, ov.rank.top);
+    }
     rank.top = Object.assign({}, (base.rank || {}).top || {}, (ov.rank || {}).top || {});
-    var win = Object.assign({}, base.win || {}, ov.win || {});
     return {
       mode: (['rank', 'win'].indexOf(ov.mode) >= 0 ? ov.mode : base.mode) || 'rank',
-      stack: (ov.stack === undefined || ov.stack === null) ? base.stack !== false : !!ov.stack,
+      stack: (typeof ov.stack === 'boolean') ? ov.stack : (base.stack !== false),
       resetScope: ov.resetScope || base.resetScope || 'participants',
       rank: rank,
-      win: win
+      win: Object.assign({}, base.win || {}, ov.win || {})
     };
+  };
+
+  /**
+   * 取（必要时创建）某个阶段的独立计分规则。
+   * 逐阶段模式下每个单元都持有一份完整规则：方式 + 分值 + 叠加方式，
+   * 这样界面才能「每个阶段都真的能改」，引擎也只看这一份。
+   */
+  E.seasonStageRule = function (season, key) {
+    var r = (season && season.rule) || {};
+    r.overrides = r.overrides || {};
+    var ov = r.overrides[key];
+    if (!ov || typeof ov !== 'object') { ov = {}; r.overrides[key] = ov; }
+    ov.on = true;
+    if (['rank', 'win'].indexOf(ov.mode) < 0) ov.mode = (r.mode === 'win') ? 'win' : 'rank';
+    ov.rank = ov.rank || {};
+    if (!Array.isArray(ov.rank.tiers) || !ov.rank.tiers.length) {
+      ov.rank.tiers = ((r.rank && r.rank.tiers) || []).map(function (t) { return Object.assign({}, t); });
+    }
+    if (ov.rank.step === undefined) ov.rank.step = (r.rank && r.rank.step !== undefined) ? r.rank.step : 3;
+    if (ov.rank.floor === undefined) ov.rank.floor = (r.rank && r.rank.floor !== undefined) ? r.rank.floor : 5;
+    ov.win = Object.assign({}, r.win || {}, ov.win || {});
+    if (typeof ov.stack !== 'boolean') ov.stack = (r.stack !== false);
+    return ov;
+  };
+
+  // 逐阶段模式：把所有单元的独立规则补齐（返回新建的数量，供界面决定是否落盘）
+  E.seasonSyncStageRules = function (season, units) {
+    if (E.seasonPlan(season) !== 'stage') return 0;
+    var r = season.rule;
+    r.overrides = r.overrides || {};
+    var made = 0;
+    (units || []).forEach(function (u) {
+      if (!r.overrides[u.key] || typeof r.overrides[u.key] !== 'object') made++;
+      E.seasonStageRule(season, u.key);
+    });
+    return made;
   };
 
   /**
@@ -5264,9 +5343,15 @@
    * @return {ok, source, units, rows:[{key,name,pos,total,stops,best,units:{key:{pts,rank,...}}}], warnings}
    */
   E.seasonTable = function (season, tlist) {
-    var src = ((season && season.rule && season.rule.source) === 'season') ? 'season' : 'tournament';
-    if (src === 'tournament') return E.seasonTableBySite(season, tlist);
-    return E.seasonTableByRule(season, tlist);
+    var plan = E.seasonPlan(season);
+    if (plan === 'site') {
+      var a = E.seasonTableBySite(season, tlist);
+      a.plan = 'site';
+      return a;
+    }
+    var b = E.seasonTableByRule(season, tlist);
+    b.plan = plan;
+    return b;
   };
 
   /**

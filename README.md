@@ -32,6 +32,7 @@
 | 🎯 局 → 回合两级 | 一场比赛可打多个同局制的回合（如「3 回合 × 五局三胜」），按赢回合 / 大比分 / 得分定胜负 |
 | 📊 积分三选一 | 按名次 / 按胜场 / **按是否晋级下一阶段**；阶段级叠加 / 不叠加独立控制 |
 | 🧮 小分体系 | 净胜局、净小分、累进分、对手分等多种排序依据，可跨阶段继承；**阶段得分可逐阶段分别设置**（第 1 / 第 2 阶段各自一项） |
+| 🗓️ 赛季计分三选一 | **各站自己的积分** / **赛季统一一套分值** / **每个阶段一套完整规则**——三选一，不再有「默认 + 覆盖」两层结构；逐阶段模式下每个阶段都能单独改方式与档位 |
 | 🚩 警告与判负 | 每场可为双方记警告 / 判负次数，**自动累计进小分**：同分先比判负、再比警告（越少越靠前），排名表与 CSV 同步显示 |
 | ⚡ 实时战绩 | 对阵图、晋级路径、提前晋级 / 淘汰实时显示 |
 | ⏱️ 计时器 | 每桌独立计时，到点按当前比分自动结算 |
@@ -47,15 +48,15 @@
 
 > 更多截图见 [docs/](docs/)。所有界面均为本项目实际运行截图。
 
-## 🚀 下载（v2.3）
+## 🚀 下载（v2.4）
 
 前往 **[Releases](https://github.com/abcnyyy/card-tournament-manager/releases/latest)** 页面下载，或直接点下面的链接：
 
 | 平台 | 文件 | 大小 | 说明 |
 |---|---|---|---|
-| Windows 绿色版 | [card-tournament-manager-2.3.0-portable.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.3/card-tournament-manager-2.3.0-portable.exe) | 77 MB | 单个 exe，双击即用，无需安装，可放 U 盘 |
-| Windows 安装版 | [card-tournament-manager-2.3.0-setup.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.3/card-tournament-manager-2.3.0-setup.exe) | 77 MB | 安装到本机，生成开始菜单 / 桌面快捷方式 |
-| Android | [card-tournament-manager-2.3.0.apk](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.3/card-tournament-manager-2.3.0.apk) | 3.8 MB | 手机 / 平板安装，界面自适应竖屏 |
+| Windows 绿色版 | [card-tournament-manager-2.4.0-portable.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.4/card-tournament-manager-2.4.0-portable.exe) | 77 MB | 单个 exe，双击即用，无需安装，可放 U 盘 |
+| Windows 安装版 | [card-tournament-manager-2.4.0-setup.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.4/card-tournament-manager-2.4.0-setup.exe) | 77 MB | 安装到本机，生成开始菜单 / 桌面快捷方式 |
+| Android | [card-tournament-manager-2.4.0.apk](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.4/card-tournament-manager-2.4.0.apk) | 3.8 MB | 手机 / 平板安装，界面自适应竖屏 |
 
 > Windows 版首次运行若被 SmartScreen 拦下，点「更多信息 → 仍要运行」即可（未签名应用都这样）。
 > 完整操作说明见仓库内的 [使用说明.md](使用说明.md)。
@@ -91,9 +92,9 @@ npm run apk:debug     # Android 调试版 APK（需本机 JDK 17 + Android SDK�
 
 ```bash
 node tools/test_engine.js     # 引擎核心
-node tools/test_v31.js        # 最新版本专项用例（逐阶段得分 / 警告判负进小分）
+node tools/test_v32.js        # 最新版本专项用例（赛季三方案 / 逐阶段改分值 / 轮空奇偶）
 node tools/smoke_flow.js      # 端到端流程
-node tools/smoke_v31.js       # 界面冒烟（警告判负录入 / 逐阶段列 / 破同顺序）
+node tools/smoke_v32.js       # 界面冒烟（赛季计分三选一 / 逐阶段改分值 / 轮空卡片）
 node tools/verify_pack.js     # 从打包产物 app.asar 解包复跑
 ```
 

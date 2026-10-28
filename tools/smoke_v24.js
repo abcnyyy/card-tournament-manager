@@ -153,15 +153,24 @@ async function waitReady() {
   await pick('[data-sbind="rule.unit"]', 'tournament');
   await sleep(450);
 
-  console.log('\n=== 4. 单元覆盖：不叠加 ===');
-  const setStack = await ev(`(function(){
-    var sels=document.querySelectorAll('[data-unit-rule="stack"]');
-    if(sels.length<2) return 'few';
-    sels[1].value='0';
-    sels[1].dispatchEvent(new Event('change',{bubbles:true}));
-    return sels[1].getAttribute('data-key');
+  console.log('\n=== 4. 单元覆盖：不叠加（逐阶段设置） ===');
+  // v2.4 起「某个单元不叠加」放在「每个阶段分别设置」里，不再有独立的单元覆盖层级
+  await click('[data-act="seasonPlan"][data-plan="stage"]');
+  await sleep(400);
+  await ev(`(function(){
+    var rows=[].slice.call(document.querySelectorAll('.se-unit'));
+    if(rows[1]) rows[1].querySelector('[data-act="seStageToggle"]').click();
+    return 1;
   })()`);
-  await sleep(500);
+  await sleep(600);
+  const setStack = await ev(`(function(){
+    var el=document.querySelectorAll('.sub-panel [data-se-path="stack"]')[0];
+    if(!el) return 'few';
+    el.value='0';
+    el.dispatchEvent(new Event('change',{bubbles:true}));
+    return 'ok';
+  })()`);
+  await sleep(600);
   const afterStack = await ev(`(function(){
     var t=document.querySelector('.season-tbl');
     var out={};
@@ -171,7 +180,7 @@ async function waitReady() {
     });
     return out;
   })()`);
-  ok('第 2 站设成「不叠加」后写回存档', typeof setStack === 'string' && setStack.indexOf('#') < 0, setStack);
+  ok('第 2 站设成「不叠加」后写回存档', setStack === 'ok', setStack);
   ok('不叠加：第 2 站冠军 leftno12 只剩本站 100 分', afterStack.leftno12 && afterStack.leftno12.total === '100', afterStack.leftno12);
   ok('不叠加：JCLE 之前 100 分不保留（只剩第 2 站的分数）',
     afterStack.JCLE && afterStack.JCLE.total !== '135' && Number(afterStack.JCLE.total) <= 100,
