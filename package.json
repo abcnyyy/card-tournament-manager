@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@capacitor/android": "^6.1.2",
-    "@capacitor/core": "^6.1.2"
+    "@capacitor/core": "^8.5.3"
   },
   "optionalDependencies": {
     "@capacitor/cli": "^6.1.2"
