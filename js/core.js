@@ -182,8 +182,14 @@
     { key: 'manual', name: '手动摆放首轮位（自己把选手摆进对阵位）' }
   ];
 
+  /* 破同（小分）依据
+     注意：'stageP<阶段下标>' 是「逐阶段得分」家族（v2.3），由界面按赛程动态生成，
+     例如 stageP0 = 第 1 阶段得分、stageP1 = 第 2 阶段得分……
+     旧的 'stagePoints'（上一阶段得分）仍然保留，等价于 stageP<(当前阶段-1)>。 */
   C.TIEBREAKERS = [
     { key: 'points',      name: '积分' },
+    { key: 'forfeit',     name: '判负次数（越少越靠前）' },
+    { key: 'warnings',    name: '警告次数（越少越靠前）' },
     { key: 'buchholz',    name: '对手分总和 (Buchholz)' },
     { key: 'h2h',         name: '相互胜负关系' },
     { key: 'gamesDiff',   name: '净胜局数' },
@@ -324,10 +330,32 @@
       // tieMigrated=true 表示本存档已同步到最新版依据表；
       // 旧存档没有该字段时才补齐新增依据，且只补一次，避免覆盖用户手动删除的结果
       tieMigrated: true,
-      tieOrder: ['points', 'buchholz', 'h2h', 'gamesDiff', 'gamesWon', 'gamesLost', 'wins',
+      // 判负 / 警告也是破同依据（v2.3）：先比判负、再比警告
+      penTieMigrated: true,
+      tieOrder: ['points', 'forfeit', 'warnings', 'buchholz', 'h2h', 'gamesDiff', 'gamesWon', 'gamesLost', 'wins',
         'progressive', 'cumulative', 'cumDiff', 'stagePoints', 'seed', 'manual'],
       manualOrder: {}                       // 手动指定的名次：playerId -> 序号
     };
+  };
+
+  /* ---- 逐阶段得分（v2.3）：破同依据里的「第 N 阶段得分」 ---- */
+  // 键名形如 stageP0 / stageP1 ……（数字 = 阶段下标，0 表示第 1 阶段）
+  M.stageTieKey = function (i) {
+    var n = parseInt(i, 10);
+    return 'stageP' + (isNaN(n) || n < 0 ? 0 : n);
+  };
+  M.stageTieIdx = function (key) {
+    var m = /^stageP(\d+)$/.exec(String(key === undefined || key === null ? '' : key));
+    return m ? parseInt(m[1], 10) : -1;
+  };
+  // 某个破同键的中文名（含逐阶段得分）
+  M.tieName = function (key) {
+    var i = M.stageTieIdx(key);
+    if (i >= 0) return '第 ' + (i + 1) + ' 阶段得分';
+    for (var k = 0; k < C.TIEBREAKERS.length; k++) {
+      if (C.TIEBREAKERS[k].key === key) return C.TIEBREAKERS[k].name;
+    }
+    return key;
   };
 
   M.defaultStage = function (index) {
@@ -804,6 +832,7 @@
     if (!t) return t;
     // 旧存档本身不带 tieMigrated 标记（上面的 Object.assign 会把它盖成 true，故先取出来）
     var hadTieFlag = !!(t.scoring && Object.prototype.hasOwnProperty.call(t.scoring, 'tieMigrated'));
+    var hadPenFlag = !!(t.scoring && Object.prototype.hasOwnProperty.call(t.scoring, 'penTieMigrated'));
     t.format = Object.assign(M.defaultFormat(), t.format || {});
     t.scoring = Object.assign(M.defaultScoring(), t.scoring || {});
     if (!Array.isArray(t.scoring.tieOrder)) t.scoring.tieOrder = M.defaultScoring().tieOrder;
@@ -819,6 +848,16 @@
       });
       t.scoring.tieOrder = cur.filter(function (k, i) { return cur.indexOf(k) === i; });
       t.scoring.tieMigrated = true;
+    }
+    // v2.3：判负 / 警告 进入破同依据（插在「积分」之后，判负先于警告）。
+    // 同样只补一次，避免用户手动删掉后被反复塞回来。
+    if (!hadPenFlag) {
+      var pAt = t.scoring.tieOrder.indexOf('points');
+      pAt = pAt < 0 ? 0 : pAt + 1;
+      ['forfeit', 'warnings'].forEach(function (k) {
+        if (t.scoring.tieOrder.indexOf(k) < 0) { t.scoring.tieOrder.splice(pAt, 0, k); pAt++; }
+      });
+      t.scoring.penTieMigrated = true;
     }
     if (!t.scoring.manualOrder) t.scoring.manualOrder = {};
     if (!t.scoring.scoreTable || typeof t.scoring.scoreTable !== 'object') t.scoring.scoreTable = {};

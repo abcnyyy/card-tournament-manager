@@ -287,11 +287,31 @@
   }
 
   /* --- 记分规则表单（赛事全局 / 阶段独立共用） --- */
-  // 把 ranking key 转成中文名（找不到时直接返回 key）
+  // 把 ranking key 转成中文名（逐阶段得分也能正确显示）
   function getNameOfTie(key) {
-    var list = (C && C.TIEBREAKERS) || [];
-    for (var i = 0; i < list.length; i++) if (list[i].key === key) return list[i].name;
-    return key;
+    return M.tieName(key);
+  }
+
+  /**
+   * 排名依据可选项：内置依据 + 「第 N 阶段得分」（v2.3 逐阶段化）
+   *   si = 正在编辑的阶段下标（null = 赛事全局，按整份赛程算）
+   *   逐阶段得分插在原来「上一阶段得分」的位置后面，两类都保留：
+   *   「上一阶段得分」= 相对当前阶段的上一段，跨阶段通用；
+   *   「第 N 阶段得分」= 固定指向某一段，后面的阶段都能用。
+   */
+  function tieOptions(si) {
+    var stages = (T && T.stages) || [];
+    var lim = (si === null || si === undefined) ? Math.max(0, stages.length - 1) : si;
+    var list = [];
+    (C.TIEBREAKERS || []).forEach(function (x) {
+      if (x.key === 'stagePoints') {
+        for (var i = 0; i < lim; i++) {
+          list.push({ key: M.stageTieKey(i), name: '第 ' + (i + 1) + ' 阶段得分' });
+        }
+      }
+      list.push(x);
+    });
+    return list;
   }
 
   function scoringHTML(prefix, sc, fmtArg, tieArg) {
@@ -786,10 +806,12 @@
 
     /* --- 排名依据 --- */
     var tb = '<div class="hint" style="margin-bottom:6px">同分时从上到下依次比较。' +
-      '点「上」「下」调整优先级，点「移除」停用该项，不需要的依据都可以删掉。</div>';
+      '点「上」「下」调整优先级，点「移除」停用该项，不需要的依据都可以删掉。<br>' +
+      '「第 N 阶段得分」可以<b>每个阶段单独作为一个依据</b>（后面的阶段都能用它比），' +
+      '「上一阶段得分」则固定指向上一个阶段；判负 / 警告次数<b>越少越靠前</b>，' +
+      '默认顺序是<b>先比判负、再比警告</b>。</div>';
     sc.tieOrder.forEach(function (key, i) {
-      var name = key;
-      for (var k = 0; k < C.TIEBREAKERS.length; k++) if (C.TIEBREAKERS[k].key === key) name = C.TIEBREAKERS[k].name;
+      var name = getNameOfTie(key);
       tb += '<div class="row tie-row">' +
         '<b>' + (i + 1) + '</b> <span class="tie-name">' + esc(name) + '</span>' +
         '<button class="btn sm" data-act="tieUp" data-i="' + i + '">上</button>' +
@@ -802,7 +824,7 @@
         '<span class="hint">当前未启用任何排名依据，同分选手将保持录入顺序。</span></div>';
     }
     // 可添加的依据
-    var avail = C.TIEBREAKERS.filter(function (x) { return sc.tieOrder.indexOf(x.key) < 0; });
+    var avail = tieOptions(null).filter(function (x) { return sc.tieOrder.indexOf(x.key) < 0; });
     if (avail.length) {
       tb += '<div class="row" style="margin-top:6px">' +
         '<select id="tieAddSel" style="flex:1">' +
@@ -2380,6 +2402,12 @@
       '</span>';
     h += '<span class="mtags">';
     for (var hi = 1; hi < headParts.length; hi++) h += '<span class="tag">' + esc(headParts[hi]) + '</span>';
+    // 警告 / 判负徽标（只在记过时显示，先判负后警告）
+    var pen0 = E.penOf(m);
+    [['a', 'A', pen0.a], ['b', 'B', pen0.b]].forEach(function (x) {
+      if (x[2].forfeit) h += '<span class="tag penbad">判负 ' + x[1] + '×' + x[2].forfeit + '</span>';
+      if (x[2].warn) h += '<span class="tag penwarn">警告 ' + x[1] + '×' + x[2].warn + '</span>';
+    });
     h += '</span>';
     h += '<span class="mstat' + (m.decided ? ' done' : '') + '">' + esc(statusTxt) + '</span>';
     /* 快捷录入常驻在行右侧（个人赛）；团体赛的对阵 / 录入在下方对阵表里 */
@@ -2474,6 +2502,9 @@
       h += '<div class="quickrow noprint"><button class="btn sm" data-act="clearOverride" data-id="' + m.id + '">取消指定</button></div>';
     }
 
+    /* ---- 警告 / 判负（v2.3）：计入小分，先比判负、再比警告 ---- */
+    h += penRowHTML(m, na, nb);
+
     /* ---- 计时器 ---- */
     h += '<div class="match-foot noprint' + (openMore[m.id] ? ' open' : '') + '">';
     h += tmRowHTML(m);
@@ -2482,6 +2513,29 @@
     h += '</div>';   // mrow-detail
     h += '</div>';   // match
     return h;
+  }
+
+  /* ---- 警告 / 判负一行：给裁判在明细区里补记纪律（v2.3） ---- */
+  function penRowHTML(m, na, nb) {
+    var p = E.penOf(m);
+    function num(side, kind, val) {
+      return '<input class="inline-num pen-num" type="number" min="0" max="99" step="1"' +
+        ' value="' + (val || 0) + '" data-pen="1" data-id="' + esc(m.id) + '"' +
+        ' data-side="' + side + '" data-kind="' + kind + '">';
+    }
+    function line(side, who, obj) {
+      return '<div class="pen-line">' +
+        '<span class="pen-who">' + esc(who) + '</span>' +
+        '<span class="pen-cell"><i>警告</i>' + num(side, 'warn', obj.warn) + '</span>' +
+        '<span class="pen-cell"><i>判负</i>' + num(side, 'forfeit', obj.forfeit) + '</span>' +
+        '</div>';
+    }
+    return '<div class="penrow noprint">' +
+      '<div class="pen-title">警告 / 判负' +
+      '<span class="hint">计入小分：先比<b>判负</b>次数、再比<b>警告</b>次数，都是越少越靠前；不影响本场胜负。</span>' +
+      '</div>' +
+      line('a', na, p.a) + line('b', nb, p.b) +
+      '</div>';
   }
 
   /* ---- 比赛卡片上的计时器一行：倒计时 + 开表 / 暂停 / 加时 / 归零 + 按未打完结算 ---- */
@@ -2919,6 +2973,14 @@
     var showProg = order.indexOf('progressive') >= 0;
     var showPrev = order.indexOf('stagePoints') >= 0 && si > 0;
     var showCumDiff = order.indexOf('cumDiff') >= 0;
+    // v2.3：判负 / 警告 用到了才显示；逐阶段得分逐个成列
+    var showForf = order.indexOf('forfeit') >= 0;
+    var showWarn = order.indexOf('warnings') >= 0;
+    var spCols = [];
+    order.forEach(function (k) {
+      var n = M.stageTieIdx(k);
+      if (n >= 0 && n < si && spCols.indexOf(n) < 0) spCols.push(n);
+    });
     var inhNote = '';
     if (showCarry && si > 0) {
       var rt = parseFloat(stage.inherit.ratio);
@@ -2937,12 +2999,15 @@
       '<th class="num">名次</th><th>' + (teamOn2 ? '队伍' : '选手') + '</th><th class="num">积分</th>' +
       (showCarry ? '<th class="num">继承分</th>' : '') +
       '<th class="num">场次</th><th class="num">胜</th><th class="num">平</th><th class="num">负</th>' +
+      (showForf ? '<th class="num">判负</th>' : '') +
+      (showWarn ? '<th class="num">警告</th>' : '') +
       '<th class="num">' + (teamOn2 ? '赢场-输场' : '赢局-输局') + '</th>' +
       '<th class="num">' + (teamOn2 ? '净胜场' : '净胜局') + '</th>' +
       '<th class="num">' + (teamOn2 ? '个人小局' : '累计小分') + '</th>' +
       (showCumDiff ? '<th class="num">净小分</th>' : '') +
       (showProg ? '<th class="num">累进分</th>' : '') +
       (showPrev ? '<th class="num">上阶段分</th>' : '') +
+      spCols.map(function (n) { return '<th class="num">第 ' + (n + 1) + ' 阶段分</th>'; }).join('') +
       '<th class="num">对手分</th>' +
       '<th>状态</th>' +
       '<th class="noprint">手动调序</th>' +
@@ -2978,12 +3043,18 @@
         '<td class="num">' + s.wins + '</td>' +
         '<td class="num">' + s.draws + '</td>' +
         '<td class="num">' + s.losses + '</td>' +
+        (showForf ? '<td class="num">' + (s.forfeits ? '<b class="penbad">' + s.forfeits + '</b>' : '0') + '</td>' : '') +
+        (showWarn ? '<td class="num">' + (s.warnings ? '<b class="penwarn">' + s.warnings + '</b>' : '0') + '</td>' : '') +
         '<td class="num">' + s.gamesWon + '-' + s.gamesLost + '</td>' +
         '<td class="num">' + (s.gamesDiff > 0 ? '+' : '') + s.gamesDiff + '</td>' +
         '<td class="num">' + U.fmt(s.cumulative) + '</td>' +
         (showCumDiff ? '<td class="num">' + ((s.cumDiff > 0 ? '+' : '') + U.fmt(s.cumDiff)) + '</td>' : '') +
         (showProg ? '<td class="num">' + U.fmt(s.progressive) + '</td>' : '') +
         (showPrev ? '<td class="num">' + U.fmt(s.stagePoints) + '</td>' : '') +
+        spCols.map(function (n) {
+          var v = (s.stagePts && s.stagePts[n]) || 0;
+          return '<td class="num">' + U.fmt(v) + '</td>';
+        }).join('') +
         '<td class="num">' + U.fmt(s.buchholz) + '</td>' +
         '<td>' + esc(status.join(' / ')) + '</td>' +
         '<td class="noprint">' +
@@ -4989,6 +5060,19 @@
         if (mst) afterStageEdit(T.stages[parseInt(mst[1], 10)], path);
         save();
         render();
+        return;
+      }
+      /* ---- 警告 / 判负（v2.3）：记在单场比赛上，累计进小分 ---- */
+      var penEl = e.target.closest('[data-pen]');
+      if (penEl) {
+        var pmid0 = penEl.getAttribute('data-id');
+        var pside0 = penEl.getAttribute('data-side');
+        var pkind0 = penEl.getAttribute('data-kind');
+        mutate(function () {
+          var m0 = findMatch(pmid0);
+          if (!m0) return { ok: false, msg: '未找到该场比赛' };
+          return E.penSet(m0, pside0, pkind0, penEl.value);
+        });
         return;
       }
       /* ---- 团体赛：选这一场双方上场的队员（排阵） ---- */

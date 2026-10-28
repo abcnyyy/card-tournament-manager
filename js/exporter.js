@@ -291,6 +291,7 @@
     var title = stage.name + (gi !== null ? (' ' + stage.groups[gi].name) : '') +
       (upTo === null ? '' : (' 截至第 ' + (upTo + 1) + ' 轮'));
     var rows = [[title + ' 排名'], ['名次', '选手', '积分', '场次', '胜', '平', '负',
+      '判负', '警告',
       '赢局', '输局', '净胜局', '累计小分', '净小分', '累进分', '上阶段分', '对手分', '状态']];
     st.forEach(function (s) {
       var status = [];
@@ -299,6 +300,7 @@
       else if ((stage.advanced || []).indexOf(s.id) >= 0) status.push('晋级');
       if (!s.active) status.push(s.dropReason || '退赛');
       rows.push([s.rank, s.name, U.fmt(s.points), s.matches, s.wins, s.draws, s.losses,
+        s.forfeits || 0, s.warnings || 0,
         s.gamesWon, s.gamesLost, s.gamesDiff, U.fmt(s.cumulative), U.fmt(s.cumDiff),
         U.fmt(s.progressive), U.fmt(s.stagePoints), U.fmt(s.buchholz),
         status.join('/')]);
