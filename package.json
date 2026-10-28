@@ -1,6 +1,6 @@
 {
   "name": "tournament-scheduler",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "卡牌赛事编排 —— 瑞士轮 / 单败 / 双败 / 循环赛 / 多阶段小组赛",
   "main": "electron/main.js",
   "author": "",

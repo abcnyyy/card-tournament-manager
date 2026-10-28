@@ -12,6 +12,11 @@
   var stView = { stageIndex: 0, groupIdx: -1, bracketMerged: true };
   var showHistory = false;
   var arrangeOn = false;
+  // 手动编排：小组赛要按组分别编排（-1 = 自动挑第一个待编排的组）
+  var arrGroupIdx = -1;
+  // 淘汰赛「手动摆放首轮位」面板状态
+  var slotOn = false;
+  var slotDraft = null;   // { size, slots:[id|null], pick:id|null }
   var groupOpen = false;
   // 对阵页：正在查看的轮次 / 阶段（-1 = 当前最新一轮 / 当前阶段）
   //   轮次：可随时回看并补录之前任何一轮
@@ -931,6 +936,9 @@
     } else if (s.type === 'round_robin') {
       h += fld('循环次数', inp('number', p + '.cycles', s.cycles, ' min="1"'),
         '1 = 单循环（每人交手一次）；2 = 双循环（主客场各一次）。');
+      h += fld('每轮配对方式', sel(p + '.pairMode', C.PAIR_MODES, s.pairMode || 'auto', true),
+        '自动配对：积分相近者优先、尽量避免重复交手；随机配对：每轮重新抽签；'
+        + '手动编排：<b>每轮</b>由你在「③ 对阵与录入」页自己点选配对（不再一次性生成全部轮）。');
     } else if (s.type === 'groups') {
       h += '<div class="grid3">' +
         fld('小组数量', inp('number', p + '.groupCount', s.groupCount, ' min="1"')) +
@@ -949,6 +957,8 @@
         '</div>';
       if (s.groupType === 'round_robin') {
         h += fld('组内循环次数', inp('number', p + '.groupCycles', s.groupCycles || 1, ' min="1"'));
+        h += fld('组内每轮配对方式', sel(p + '.pairMode', C.PAIR_MODES, s.pairMode || 'auto', true),
+          '组内循环赛：自动配对按积分、手动编排需<b>按组分别</b>点选配对（每组都是独立的一轮）。');
       } else if (s.groupType === 'swiss') {
         h += fld('组内轮数', inp('number', p + '.groupRounds', s.groupRounds || 3, ' min="1"'));
       } else if (s.groupType === 'single_elim') {
@@ -1109,7 +1119,13 @@
       h += fld('编排方式', sel(p + '.drawMode', C.DRAW_MODES, s.drawMode || 'seed', true),
         '按种子号：标准种子位，1 号与末位同区、强手分散；'
         + '分档抽签：先按种子分档，<b>档内随机</b>（同档的人互换位置，强弱分布不变）；'
-        + '完全随机抽签：所有选手一起打乱。');
+        + '完全随机抽签：所有选手一起打乱；'
+        + '手动摆放首轮位：首轮不自动排，由你在「③ 对阵与录入」页自己把选手拖进对阵位。');
+      if ((s.drawMode || 'seed') === 'manual') {
+        h += '<div class="notice">已选「手动摆放首轮位」：生成首轮前会出现一个座位表，'
+          + '你把每名选手放进一个对阵位（含轮空位）即可；摆好点「生成首轮对阵」。'
+          + '之后胜者组 / 败者组的自动晋级与正常双败完全一致。</div>';
+      }
       if ((s.drawMode || 'seed') === 'tier') {
         h += fld('分档数', inp('number', p + '.drawTiers', s.drawTiers || 4, ' min="2" max="32"'),
           '例如 16 人分 4 档 → 每档 4 人，档内抽签决定谁碰谁。档数越多越接近随机；'
@@ -1142,6 +1158,19 @@
             + U.nextPow2(topS) + ' 位），其余 <b>' + (npS - topS) + '</b> 人直接进败者组先打一轮。</div>';
         }
       }
+    }
+
+    // 双败：半区互换（crossover）
+    if (s.type === 'double_elim') {
+      h += '<h4>双败 · 半区互换（crossover）</h4>';
+      h += fld('启用半区互换',
+        '<label><input type="checkbox" data-bind="' + p + '.deCrossDrop"'
+        + (s.deCrossDrop ? ' checked' : '') + '> 胜者组某半区的败者，交叉掉入<b>另一个</b>半区的败者组</label>',
+        '把全场按<b>首轮对阵位</b>平分为上、下两个半区：胜者组上半区的败者掉进<b>下半区</b>败者组、'
+        + '下半区的败者掉进<b>上半区</b>败者组。两个半区败者组各自打完、各出一名冠军后，'
+        + '在<b>「败者组交叉决赛」</b>汇合，胜者再去打总决赛。'
+        + '<br>· 好处：避免「刚在胜者组交过手的人、掉进败者组又立即相遇」，更公平、更接近主流电竞 / 棋类双败（如 CUBA 的上下半区）。'
+        + '<br>· 关闭（默认）：传统双败，胜者组败者统一掉进同一个败者组，按原顺序交错配对。');
     }
 
     // 双败：总决赛规则
@@ -1447,7 +1476,53 @@
   }
 
   /* ============ 手动编排（点选式，手机上也点得准） ============ */
-  var draft = null;      // { stageIndex, replace, pairs:[[a,b]], bye, sel:[] }
+  var draft = null;      // { stageIndex, groupIdx, replace, pairs:[[a,b]], bye, sel:[] }
+
+  // 某组的「最后一轮」（小组赛各组轮次彼此独立；非小组赛就是最新一轮）
+  function lastRoundOfGroup(stage, gi) {
+    if (gi === null || gi === undefined) return E.currentRound(stage);
+    for (var q = (stage.roundsData || []).length - 1; q >= 0; q--) {
+      var rd = stage.roundsData[q];
+      if (rd.group === gi ||
+        (rd.matches || []).some(function (m) { return m.group === gi; })) return rd;
+    }
+    return null;
+  }
+
+  // 手动编排上下文：统一算好「编排哪个组 / 能不能编排 / 候选池 / 该组上一轮」
+  function arrCtx(stage) {
+    var gi = null, list = [];
+    if (stage && stage.type === 'groups') {
+      var gs = stage.groups || [];
+      var pend = E.groupArrangePending(stage);
+      list = gs.map(function (g, i) {
+        var c = E.canManualArrange(T, stage, null, { groupIdx: i });
+        var hit = pend.filter(function (y) { return y.idx === i; })[0];
+        return {
+          idx: i, name: g.name, can: c, ready: !!c.ok,
+          need: !!hit, count: hit ? hit.count : 0, finished: !!g.finished
+        };
+      });
+      var pick = (arrGroupIdx >= 0 && list[arrGroupIdx]) ? list[arrGroupIdx]
+        : (list.filter(function (x) { return x.ready; })[0]
+          || list.filter(function (x) { return x.need; })[0]
+          || list[0] || null);
+      if (pick) gi = pick.idx;
+      var cur = pick;
+      return {
+        gi: gi, list: list,
+        can: cur ? cur.can : E.canManualArrange(T, stage, null, { groupIdx: null }),
+        rd: lastRoundOfGroup(stage, gi),
+        pool: (cur && cur.can.ok) ? E.manualPool(T, stage, gi) : []
+      };
+    }
+    var can = E.canManualArrange(T, stage, null, { groupIdx: null });
+    return {
+      gi: null, list: list, can: can,
+      rd: lastRoundOfGroup(stage, null),
+      pool: can.ok ? E.manualPool(T, stage, null) : []
+    };
+  }
 
   function draftFromRound(stage, rd) {
     var pairs = [], bye = null;
@@ -1459,35 +1534,61 @@
     return { pairs: pairs, bye: bye, sel: [] };
   }
 
-  function ensureDraft(stage, can) {
-    if (draft && draft.stageIndex === T.currentStage) return draft;
+  function ensureDraft(stage, can, gi) {
+    if (draft && draft.stageIndex === T.currentStage && draft.groupIdx === gi) return draft;
     draft = {
       stageIndex: T.currentStage,
+      groupIdx: gi,
       replace: !!can.replace,
-      pairs: can.replace ? draftFromRound(stage, E.currentRound(stage)).pairs : [],
-      bye: can.replace ? draftFromRound(stage, E.currentRound(stage)).bye : null,
+      pairs: can.replace ? draftFromRound(stage, lastRoundOfGroup(stage, gi)).pairs : [],
+      bye: can.replace ? draftFromRound(stage, lastRoundOfGroup(stage, gi)).bye : null,
       sel: []
     };
     return draft;
   }
 
   function arrangePanelHTML(stage, rd, arr) {
-    var can = E.canManualArrange(T, stage);
+    var ctx = arrCtx(stage);
+    var can = ctx.can;
     if (!can.ok) {
       return '<div class="card"><h3>手动编排</h3>' +
         '<div class="notice inv">' + esc(can.msg) + '</div>' +
-        '<div class="hint">淘汰赛的首轮请用设置里的「编排方式」（按种子 / 分档抽签 / 随机抽签）生成；'
-        + '生成后想改，点「重新抽签」即可。</div></div>';
+        '<div class="hint">循环类赛制请在阶段设置里把「每轮配对方式」改成<b>手动编排</b>；'
+        + '淘汰赛（单败 / 双败）请把「首轮编排方式」改成<b>手动摆放首轮位</b>——'
+        + '淘汰赛不是逐轮配对，而是先把人摆进首轮的座位表，之后自动晋级。</div></div>';
     }
-    var d = ensureDraft(stage, can);
-    var pool = E.manualPool(T, stage);
-    var stats = E.buildStats(T, stage, stage.participants || [], null);
+    var gi = ctx.gi;
+    var d = ensureDraft(stage, can, gi);
+    var pool = ctx.pool;
+    var stats = E.buildStats(T, stage, (gi !== null && stage.groups && stage.groups[gi])
+      ? stage.groups[gi].players.slice() : (stage.participants || []), gi);
     var usedMap = {};
     d.pairs.forEach(function (p) { usedMap[p[0]] = 1; usedMap[p[1]] = 1; });
     if (d.bye) usedMap[d.bye] = 1;
     var num = can.roundIndex + 1;
+    // 小组赛的轮次是「按组独立」的，轮号要按本组已有几轮来算
+    if (stage.type === 'groups' && gi !== null && gi !== undefined) {
+      num = (stage.roundsData || []).filter(function (r) {
+        return r.group === gi || (r.matches || []).some(function (m) { return m.group === gi; });
+      }).length + 1;
+    }
+    var gname = (gi !== null && stage.groups && stage.groups[gi]) ? stage.groups[gi].name : '';
 
-    var h = '<div class="card arrcard"><h3>手动编排 · 第 ' + num + ' 轮</h3>';
+    var h = '<div class="card arrcard"><h3>手动编排' + (gname ? ' · ' + esc(gname) : '') +
+      ' · 第 ' + num + ' 轮</h3>';
+
+    // 小组赛：先选组（每组各自排一轮，互不影响）
+    if (stage.type === 'groups' && ctx.list && ctx.list.length) {
+      h += '<div class="arr-groups noprint"><span class="hint">编排哪个组：</span>';
+      ctx.list.forEach(function (x) {
+        var sub = x.ready ? (x.count + ' 人待编排')
+          : (x.need ? '上一轮未完' : (x.finished ? '已结束' : '无需编排'));
+        h += '<button class="rchip' + (x.idx === gi ? ' on' : '') + (x.ready ? '' : ' off') + '"' +
+          ' data-act="arrGroup" data-i="' + x.idx + '">' + esc(x.name) + '<i>' + sub + '</i></button>';
+      });
+      h += '</div>';
+    }
+
     h += '<div class="hint" style="margin:-4px 0 10px">'
       + '点两名选手组成一桌（再点一下可以取消选择）；点已配对的选手可以把他拆出来重排。'
       + '人数为奇数时要指定 1 人轮空。</div>';
@@ -1545,13 +1646,13 @@
       '</div>';
 
     // 逐桌微调（原来的下拉方式，适合精确替换）
-    if (rd) {
+    if (ctx.rd) {
       h += '<details class="arr-detail"><summary>逐桌微调（下拉替换，B 留空 = 轮空）</summary>';
       h += '<table class="compact"><thead><tr><th class="num">桌号</th><th>选手 A</th><th>选手 B</th><th class="noprint">操作</th></tr></thead><tbody>';
-      (rd.matches || []).forEach(function (m, i) {
+      (ctx.rd.matches || []).forEach(function (m, i) {
         h += '<tr><td class="num">' + (i + 1) + '</td>' +
-          '<td>' + slotSelect(stage, rd, m, 'A') + '</td>' +
-          '<td>' + slotSelect(stage, rd, m, 'B') + '</td>' +
+          '<td>' + slotSelect(stage, ctx.rd, m, 'A') + '</td>' +
+          '<td>' + slotSelect(stage, ctx.rd, m, 'B') + '</td>' +
           '<td class="noprint"><button class="btn sm danger" data-act="delTable" data-id="' + m.id + '">删除</button></td></tr>';
       });
       h += '</tbody></table></details>';
@@ -1559,6 +1660,85 @@
 
     h += '</div>';
     return h;
+  }
+
+  /* ---- 淘汰赛：手动摆放首轮位（座位表） ---- */
+  function slotPanelHTML(stage) {
+    var info = E.manualSlots(T, stage);
+    if (!info.ok) {
+      return '<div class="card"><h3>手动摆放首轮位</h3>' +
+        '<div class="notice inv">' + esc(info.msg) + '</div></div>';
+    }
+    if (!slotDraft || slotDraft.stageIndex !== T.currentStage ||
+      slotDraft.size !== info.size || !slotDraft.slots || slotDraft.slots.length !== info.size) {
+      slotDraft = {
+        stageIndex: T.currentStage, size: info.size,
+        slots: info.slots.slice(), pool: info.pool.slice(), pick: null
+      };
+    }
+    var d = slotDraft;
+    var placed = {}, cnt = 0;
+    d.slots.forEach(function (id) { if (id) { placed[id] = 1; cnt++; } });
+    var left = info.pool.length - cnt;
+    var ok = (left === 0);
+
+    var h = '<div class="card arrcard"><h3>手动摆放首轮位' +
+      (stage.type === 'double_elim' ? ' · 胜者组座位表' : '') + '</h3>';
+    h += '<div class="hint" style="margin:-4px 0 10px">'
+      + '一共 <b>' + info.size + '</b> 个首轮位置、<b>' + info.pool.length + '</b> 名参赛选手，'
+      + '其中 <b>' + info.byes + '</b> 个是轮空位。'
+      + '在下面点一个名字 → 再点一个位置，就能把人摆进去；点已占用的位置可以把人「拿起来」再换个位置（互相交换）。'
+      + '</div>';
+    if (info.split) {
+      h += '<div class="notice">本阶段设置了「排名前 ' + info.pool.length + ' 名从胜者组起跑」：'
+        + '这张座位表只排<b>进胜者组</b>的这些人，另外 ' + info.lCount
+        + ' 人会从败者组起跑（那边按种子自动排）。</div>';
+    }
+    h += '<div class="arr-bar">' +
+      '<button class="btn" data-act="sSeed">按种子自动填</button>' +
+      '<button class="btn" data-act="sClear">全部清空</button>' +
+      '<span class="hint">已摆放 <b>' + cnt + '</b> / ' + info.pool.length +
+      (left > 0 ? '（还差 ' + left + ' 人）' : (left < 0 ? '（多放了 ' + (-left) + ' 人）' : '（已满）')) +
+      '</span></div>';
+
+    // 候选池：没摆的人排前面
+    h += '<div class="arr-sec-title">选手（点一下选中，再点位置放下）</div><div class="chips">';
+    info.pool.slice().sort(function (a, b) {
+      var pa = placed[a] ? 1 : 0, pb = placed[b] ? 1 : 0;
+      if (pa !== pb) return pa - pb;
+      return (playerOf(a).seed || 9999) - (playerOf(b).seed || 9999);
+    }).forEach(function (id) {
+      var cls = 'chip' + (placed[id] ? ' used' : '') + (d.pick === id ? ' sel' : '');
+      h += '<button class="' + cls + '" data-act="sPick" data-id="' + esc(id) + '">' +
+        '<span class="chip-name">' + esc(nameOf(id)) + '</span>' +
+        '<span class="chip-sub">' + (placed[id] ? '已摆放' : ('种子 ' + (playerOf(id).seed || '—'))) + '</span>' +
+        '</button>';
+    });
+    h += '</div>';
+
+    // 座位表：两人一桌
+    h += '<div class="arr-sec-title">座位表（' + (info.size / 2) + ' 桌）</div><div class="arr-pairs">';
+    for (var k = 0; k + 1 < d.size; k += 2) {
+      h += '<div class="arr-pair slot"><span class="tno">' + (k / 2 + 1) + '</span>' +
+        seatBtn(d, k) + '<span class="vs">VS</span>' + seatBtn(d, k + 1) + '</div>';
+    }
+    h += '</div>';
+
+    h += '<div class="row" style="margin-top:12px">' +
+      '<button class="btn primary lg" data-act="sConfirm"' + (ok ? '' : ' disabled') + '>' +
+      '确认摆放并生成首轮</button>' +
+      (ok ? '<span class="hint">生成后按正常的淘汰赛自动晋级；想重摆就先「回退一步」。</span>'
+        : '<span class="hint">' + (left > 0 ? '还有 ' + left + ' 人没摆进去。' : '位置不够，请先拿起几个人。') + '</span>') +
+      '</div>';
+    h += '</div>';
+    return h;
+  }
+
+  function seatBtn(d, idx) {
+    var id = d.slots[idx];
+    var cls = 'seat' + (id ? ' on' : '') + (id && d.pick === id ? ' pick' : '');
+    var txt = id ? esc(nameOf(id)) : (d.pick ? '放这里' : '空位');
+    return '<button class="' + cls + '" data-act="sPlace" data-i="' + idx + '">' + txt + '</button>';
   }
 
   function groupEditorHTML(stage) {
@@ -1660,7 +1840,10 @@
 
     var canGen = isCur && incomplete.ok && !E.stageFinished(T, stage);
     var arr = E.canArrangeRound(T, stage, lastRd);
-    var manCan = E.canManualArrange(T, stage);
+    var actx = arrCtx(stage);
+    var manCan = actx.can;
+    // 淘汰赛「手动摆放首轮位」：只在首轮尚未生成时可用
+    var slotCan = isCur ? E.manualSlots(T, stage) : { ok: false };
     var isDE = (stage.type === 'double_elim');
     if (isCur) {
       var finBtn;
@@ -1693,6 +1876,8 @@
           ? '<button class="btn" data-act="gotoMerged">查看合并对阵图</button>' : '') +
         (manCan.ok ? '<button class="btn' + (arrangeOn ? ' primary' : '') + '" data-act="toggleArrange">' +
           (arrangeOn ? '收起手动编排' : '手动编排本轮') + '</button>' : '') +
+        (slotCan.ok ? '<button class="btn' + (slotOn ? ' primary' : '') + '" data-act="toggleSlot">' +
+          (slotOn ? '收起首轮座位表' : '手动摆放首轮位') + '</button>' : '') +
         '</div>';
     } else {
       h += '<div class="row noprint" style="margin-bottom:12px">' +
@@ -1723,8 +1908,19 @@
     }
 
     if (isCur && arrangeOn) h += arrangePanelHTML(stage, lastRd, arr);
+    if (isCur && slotOn) h += slotPanelHTML(stage);
+    if (stage.type === 'double_elim' && stage.deCrossDrop) {
+      h += '<div class="notice noprint"><b>本阶段启用了半区互换（crossover）</b>：'
+        + '全场按首轮对阵位平分为上、下两个半区；<b>上半区胜者组</b>的败者掉进<b>下半区败者组</b>，'
+        + '下半区胜者组的败者掉进上半区败者组。两个半区的败者组各自打完后，'
+        + '两边的败者组冠军先打一场<b>「败者组交叉决赛」</b>，胜者才进总决赛。'
+        + (stage.de ? '' : '（生成首轮后即可在对阵卡上看到半区标记。）') + '</div>';
+    }
     if (!stage.roundsData.length) {
-      h += '<div class="notice empty">尚未生成对阵。点上方「生成首轮对阵」，或点「手动编排本轮」自己点选配对。</div>';
+      h += '<div class="notice empty">尚未生成对阵。点上方「生成首轮对阵」自动排，'
+        + (isElimStage(stage)
+          ? '或点「手动摆放首轮位」自己把选手摆进首轮座位表。'
+          : '或点「手动编排本轮」自己点选配对。') + '</div>';
     } else {
       h += renderRound(stage, rd, isCur && picked === cur - 1);
     }
@@ -1753,8 +1949,13 @@
       var done = true;
       try { done = E.roundComplete(T, stage, r).ok; } catch (e) { done = true; }
       var sub = (i === cur - 1) ? '最新' : (done ? '已录完' : '有未完场');
+      // 小组赛·手动编排时每组的轮次是独立的，标签要写清是哪一组的
+      var gTag = '';
+      if (stage.type === 'groups' && r.group != null && stage.groups && stage.groups[r.group]) {
+        gTag = ' · ' + stage.groups[r.group].name;
+      }
       h += '<button class="rchip' + (i === picked ? ' on' : '') + '" data-act="pickRound" data-i="' + i + '">' +
-        '第 ' + (r.index + 1) + ' 轮' + (r.isGF ? ' · 总决赛' : '') + '<i>' + sub + '</i></button>';
+        '第 ' + (r.index + 1) + ' 轮' + gTag + (r.isGF ? ' · 总决赛' : '') + '<i>' + sub + '</i></button>';
     }
     h += '<button class="btn sm" data-act="latestRound"' + (picked === cur - 1 ? ' disabled' : '') +
       '>回到最新轮</button>';
@@ -1799,7 +2000,24 @@
           } else wLabel = '总决赛';
         }
         if (w.length) h += '<div class="msec">' + wLabel + '</div>' + matchGrid(w);
-        if (l.length) h += '<div class="msec loser">败者组</div>' + matchGrid(l);
+        if (l.length) {
+          // 半区互换：败者组分成上、下两个半区，各自打完再打「交叉决赛」
+          var crossOn = !!(stage.de && stage.de.cross);
+          if (crossOn) {
+            var lT = l.filter(function (m) { return m.lbHalf === 'T' && !m.isLBCross; });
+            var lB = l.filter(function (m) { return m.lbHalf === 'B' && !m.isLBCross; });
+            var lX = l.filter(function (m) { return m.isLBCross; });
+            var lN = l.filter(function (m) { return !m.lbHalf && !m.isLBCross; });
+            if (lT.length) h += '<div class="msec loser">败者组 · 上半区</div>' + matchGrid(lT);
+            if (lB.length) h += '<div class="msec loser">败者组 · 下半区</div>' + matchGrid(lB);
+            if (lX.length) {
+              h += '<div class="msec cross">败者组交叉决赛（上半区冠军 × 下半区冠军）</div>' + matchGrid(lX);
+            }
+            if (lN.length) h += '<div class="msec loser">败者组</div>' + matchGrid(lN);
+          } else {
+            h += '<div class="msec loser">败者组</div>' + matchGrid(l);
+          }
+        }
         if (t.length) h += '<div class="msec">季军争夺战</div>' + matchGrid(t);
       } else {
         h += matchGrid(ms);
@@ -2678,6 +2896,10 @@
       + '灰字斜体是还没打出来的格子，例如「第 1 轮 第 2 场胜者」「胜者组第 1 轮 第 3 场败者」「败者组第 2 轮 第 1 场胜者」。'
       + '卡片顶部是场次编号，底部两行是<b>晋级路径</b>：<span class="pw">胜 →</span> 下一场在哪，<span class="pl">负 →</span> 掉到哪（「淘汰」表示没有下一场）。'
       + (stage.type === 'double_elim' ? '双败的<b>总决赛在最右边</b>，与胜者组同一行。' + deHint : '')
+      + (stage.type === 'double_elim' && stage.deCrossDrop
+        ? '<br><b>半区互换已开启</b>：上半区胜者组的败者交叉掉进<b>下半区败者组</b>、下半区胜者组的败者掉进上半区败者组；'
+          + '两个半区的败者组各自决出冠军后，先打一场<b>败者组交叉决赛</b>，胜者才进总决赛。'
+        : '')
       + '</div>';
     var titleFmt = fmtText(E.fmtOf(t, stage));
     if (stage.type === 'double_elim' && (stage.gfUseFormat || mode === 'elevate')) {
@@ -3360,7 +3582,7 @@
       T = M.createTournament(name);
       S.put(T);
       TMS.current = T;
-      editStage = 0; stView = { stageIndex: 0, groupIdx: -1, bracketMerged: true }; showHistory = false; arrangeOn = false; viewRound = -1; viewStageIdx = -1; exSel = { stage: 0, round: -1, group: -1 };
+      editStage = 0; stView = { stageIndex: 0, groupIdx: -1, bracketMerged: true }; showHistory = false; arrangeOn = false; slotOn = false; slotDraft = null; arrGroupIdx = -1; viewRound = -1; viewStageIdx = -1; exSel = { stage: 0, round: -1, group: -1 };
       curView = 'setup'; render();
       toast('已新建赛事：' + name);
     },
@@ -3369,7 +3591,7 @@
       var t = S.get(id);
       if (!t) { toast('读取赛事失败', true); return; }
       T = t; S.setCurrentId(id); TMS.current = T;
-      editStage = 0; stView = { stageIndex: T.currentStage || 0, groupIdx: -1, bracketMerged: true }; showHistory = false; arrangeOn = false; viewRound = -1; viewStageIdx = -1; exSel = { stage: T.currentStage || 0, round: -1, group: -1 };
+      editStage = 0; stView = { stageIndex: T.currentStage || 0, groupIdx: -1, bracketMerged: true }; showHistory = false; arrangeOn = false; slotOn = false; slotDraft = null; arrGroupIdx = -1; viewRound = -1; viewStageIdx = -1; exSel = { stage: T.currentStage || 0, round: -1, group: -1 };
       curView = 'setup'; render();
     },
     dupT: function (el) {
@@ -3557,11 +3779,25 @@
     genRound: function () {
       viewRound = -1; viewStageIdx = -1;      // 生成新一轮后回到最新一轮
       var stage = T.stages[T.currentStage];
-      if (stage && stage.type === 'swiss' && (stage.pairMode || 'auto') === 'manual') {
-        arrangeOn = true;
+      if (!stage) return;
+      // ① 淘汰赛「手动摆放首轮位」：首轮还没生成时，点「生成首轮对阵」= 打开座位表
+      var sl = E.manualSlots(T, stage);
+      if (sl.ok) {
+        slotOn = true; arrangeOn = false; slotDraft = null;
+        render();
+        toast('本阶段按「手动摆放首轮位」编排：把选手摆进座位表，再点「确认摆放并生成首轮」', true);
+        return;
+      }
+      // ② 循环类「手动编排」：瑞士轮 / 循环赛 / 小组赛都打开点选配对面板
+      var manualPair = (stage.type === 'swiss' || stage.type === 'round_robin' || stage.type === 'groups') &&
+        (stage.pairMode || 'auto') === 'manual';
+      if (manualPair) {
+        arrangeOn = true; slotOn = false; arrGroupIdx = -1;
         if (!draft || draft.stageIndex !== T.currentStage) draft = null;
         render();
-        toast('本阶段按「手动编排」配对：点两名选手组成一桌，配好后点「确认本轮对阵」', true);
+        toast(stage.type === 'groups'
+          ? '本小组赛按「手动编排」配对：先选要编排的组，再点两名选手组成一桌'
+          : '本阶段按「手动编排」配对：点两名选手组成一桌，配好后点「确认本轮对阵」', true);
         return;
       }
       mutate(function () { return E.generateRound(T); });
@@ -3934,7 +4170,7 @@
       if (!((T.stages[i].roundsData || []).length)) { toast('该阶段还没有生成对阵', true); return; }
       viewStageIdx = (i === T.currentStage) ? -1 : i;
       viewRound = -1;
-      arrangeOn = false; draft = null;
+      arrangeOn = false; draft = null; slotOn = false; slotDraft = null; arrGroupIdx = -1;
       render();
       window.scrollTo(0, 0);
     },
@@ -3967,16 +4203,82 @@
     },
     toggleArrange: function () {
       arrangeOn = !arrangeOn;
-      if (!arrangeOn) draft = null;
+      if (!arrangeOn) { draft = null; arrGroupIdx = -1; }
       render();
+    },
+    /* 小组赛：切到另一个组去编排 */
+    arrGroup: function (el) {
+      arrGroupIdx = parseInt(el.getAttribute('data-i'), 10);
+      draft = null;
+      render();
+    },
+    /* ---- 淘汰赛：手动摆放首轮位 ---- */
+    toggleSlot: function () {
+      slotOn = !slotOn;
+      if (!slotOn) slotDraft = null;
+      render();
+    },
+    sPick: function (el) {
+      var d = slotDraft;
+      if (!d) return;
+      var id = el.getAttribute('data-id');
+      d.pick = (d.pick === id) ? null : id;
+      render();
+    },
+    sPlace: function (el) {
+      var d = slotDraft;
+      if (!d) return;
+      var i = parseInt(el.getAttribute('data-i'), 10);
+      if (!(i >= 0) || i >= d.slots.length) return;
+      if (!d.pick) {
+        // 空手点已占用的位置 = 把这个人拿起来
+        if (d.slots[i]) { d.pick = d.slots[i]; render(); }
+        return;
+      }
+      var from = d.slots.indexOf(d.pick);
+      if (from === i) { d.pick = null; render(); return; }   // 原地放下
+      var prev = d.slots[i] || null;
+      d.slots[i] = d.pick;
+      if (from >= 0) d.slots[from] = prev;                   // 交换（prev 为空 = 腾空原座位）
+      d.pick = prev;                                         // 手上换成被顶掉的人
+      render();
+    },
+    sSeed: function () {
+      var stage = T.stages[T.currentStage];
+      var info = E.manualSlots(T, stage);
+      if (!info.ok || !slotDraft) return;
+      slotDraft.slots = E.bracketSlots(info.pool, info.size, E.rankOrderIds(T, stage, info.pool));
+      slotDraft.pick = null;
+      render();
+      toast('已按种子位自动填好，可以在此基础上微调');
+    },
+    sClear: function () {
+      if (!slotDraft) return;
+      slotDraft.slots = slotDraft.slots.map(function () { return null; });
+      slotDraft.pick = null;
+      render();
+    },
+    sConfirm: function () {
+      var d = slotDraft;
+      if (!d) return;
+      var slots = d.slots.slice();
+      var r = mutate(function () {
+        var st = T.stages[T.currentStage];
+        st.bracketSlots = slots;
+        return E.generateRound(T);
+      });
+      if (r && r.ok) {
+        slotOn = false; slotDraft = null;
+        render();
+      }
     },
     /* ---- 手动编排（点选式） ---- */
     dPick: function (el) {
       var id = el.getAttribute('data-id');
       var stage = T.stages[T.currentStage];
-      var can = E.canManualArrange(T, stage);
-      if (!can.ok) { toast(can.msg, true); return; }
-      var d = ensureDraft(stage, can);
+      var ctx = arrCtx(stage);
+      if (!ctx.can.ok) { toast(ctx.can.msg, true); return; }
+      var d = ensureDraft(stage, ctx.can, ctx.gi);
       var pi = -1;
       d.pairs.forEach(function (p, i) { if (p[0] === id || p[1] === id) pi = i; });
       if (pi >= 0) { d.pairs.splice(pi, 1); d.sel = []; render(); return; }
@@ -4007,13 +4309,13 @@
     },
     dRandom: function () {
       var stage = T.stages[T.currentStage];
-      var can = E.canManualArrange(T, stage);
-      if (!can.ok) { toast(can.msg, true); return; }
-      var d = ensureDraft(stage, can);
-      var ids = U.shuffle(E.manualPool(T, stage), U.makeRng(U.randomSeed()));
+      var ctx = arrCtx(stage);
+      if (!ctx.can.ok) { toast(ctx.can.msg, true); return; }
+      var d = ensureDraft(stage, ctx.can, ctx.gi);
+      var ids = U.shuffle(ctx.pool.slice(), U.makeRng(U.randomSeed()));
       var pairs = [], i;
       for (i = 0; i + 1 < ids.length; i += 2) pairs.push([ids[i], ids[i + 1]]);
-      var played = E.playedSet(T, stage, null);
+      var played = E.playedSet(T, stage, ctx.gi);
       d.pairs = E.avoidRepeatPairs(pairs, played);
       d.bye = (ids.length % 2 === 1) ? ids[ids.length - 1] : null;
       d.sel = [];
@@ -4022,11 +4324,13 @@
     },
     dAuto: function () {
       var stage = T.stages[T.currentStage];
-      var can = E.canManualArrange(T, stage);
-      if (!can.ok) { toast(can.msg, true); return; }
-      var d = ensureDraft(stage, can);
-      var stats = E.buildStats(T, stage, stage.participants || [], null);
-      var pool = E.manualPool(T, stage).slice().sort(function (a, b) {
+      var ctx = arrCtx(stage);
+      if (!ctx.can.ok) { toast(ctx.can.msg, true); return; }
+      var d = ensureDraft(stage, ctx.can, ctx.gi);
+      var pool0 = (ctx.gi !== null && stage.groups && stage.groups[ctx.gi])
+        ? stage.groups[ctx.gi].players.slice() : (stage.participants || []);
+      var stats = E.buildStats(T, stage, pool0, ctx.gi);
+      var pool = ctx.pool.slice().sort(function (a, b) {
         var pa = stats[a] ? stats[a].points : 0, pb = stats[b] ? stats[b].points : 0;
         if (pb !== pa) return pb - pa;
         return (playerOf(a).seed || 9999) - (playerOf(b).seed || 9999);
@@ -4042,7 +4346,7 @@
       }
       var pairs = [], i;
       for (i = 0; i + 1 < pool.length; i += 2) pairs.push([pool[i], pool[i + 1]]);
-      d.pairs = E.avoidRepeatPairs(pairs, E.playedSet(T, stage, null));
+      d.pairs = E.avoidRepeatPairs(pairs, E.playedSet(T, stage, ctx.gi));
       d.bye = bye;
       d.sel = [];
       render();
@@ -4050,14 +4354,23 @@
     },
     dConfirm: function () {
       var stage = T.stages[T.currentStage];
-      var can = E.canManualArrange(T, stage);
-      if (!can.ok) { toast(can.msg, true); return; }
-      var d = ensureDraft(stage, can);
-      var pairs = d.pairs.slice(), bye = d.bye;
+      var ctx = arrCtx(stage);
+      if (!ctx.can.ok) { toast(ctx.can.msg, true); return; }
+      var d = ensureDraft(stage, ctx.can, ctx.gi);
+      var pairs = d.pairs.slice(), bye = d.bye, gi = ctx.gi;
       var r = mutate(function () {
-        return E.commitManualRound(T, T.currentStage, pairs, bye, { replace: can.replace });
+        return E.commitManualRound(T, T.currentStage, pairs, bye, { replace: ctx.can.replace, groupIdx: gi });
       });
-      if (r && r.ok) { draft = null; arrangeOn = false; render(); }
+      if (r && r.ok) {
+        draft = null;
+        arrGroupIdx = -1;            // 下一组交给 arrCtx 自动挑（挑「本组上一轮已打完」的）
+        var more = false;
+        if (stage.type === 'groups') {
+          more = arrCtx(stage).list.some(function (x) { return x.ready; });
+        }
+        if (more) { arrangeOn = true; render(); }
+        else { arrangeOn = false; render(); }
+      }
     },
     redrawDraw: function () {
       var stage = T.stages[T.currentStage];
@@ -4821,7 +5134,7 @@
           T = S.normalize(obj);
           S.put(T);
           TMS.current = T;
-          editStage = 0; stView = { stageIndex: T.currentStage || 0, groupIdx: -1, bracketMerged: true }; arrangeOn = false; viewRound = -1; viewStageIdx = -1;
+          editStage = 0; stView = { stageIndex: T.currentStage || 0, groupIdx: -1, bracketMerged: true }; arrangeOn = false; slotOn = false; slotDraft = null; arrGroupIdx = -1; viewRound = -1; viewStageIdx = -1;
           curView = 'setup'; render();
           toast('已载入存档：' + T.name);
         });

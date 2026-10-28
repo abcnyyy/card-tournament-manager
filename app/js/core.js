@@ -178,7 +178,8 @@
   C.DRAW_MODES = [
     { key: 'seed',   name: '按种子号编排（强手分散，标准种子位）' },
     { key: 'tier',   name: '分档抽签（按种子分档，档内随机）' },
-    { key: 'random', name: '完全随机抽签（全部选手打乱）' }
+    { key: 'random', name: '完全随机抽签（全部选手打乱）' },
+    { key: 'manual', name: '手动摆放首轮位（自己把选手摆进对阵位）' }
   ];
 
   C.TIEBREAKERS = [
@@ -386,6 +387,9 @@
       drawMode: 'seed',
       drawTiers: 4,        // 分档抽签的档数
       drawSeed: 0,         // 本次抽签的随机种子（0 = 还没抽过）
+      // 手动摆放首轮位：drawMode='manual' 时，由用户把选手摆进 bracket 位置
+      // （数组长度 = 对阵表规模 size，按位置顺序；null = 轮空位）
+      bracketSlots: null,
       // ---- 双败：分组起跑 ----
       // deSplitTop = 0：全部人从胜者组打起（传统双败）
       // deSplitTop = N：按本阶段排名取前 N 人从胜者组打起，其余 N+1 名以后
@@ -399,6 +403,12 @@
       //   · 败者组平局 → 两人都被淘汰（各吃到第 2 负）
       //   · 总决赛平局 → 胜者组冠军掉进败者组、败者组冠军被淘汰，只剩一人 → 其为冠军
       drawBothLose: false,
+      // ---- 双败：半区互换（crossover）----
+      // deCrossDrop = true：按 bracket 位置把全场平分为上下两个半区；
+      //   胜者组某半区的败者交叉掉入「另一个」半区的败者组，
+      //   两个败者组半区在总决赛前汇合决出败者组冠军。
+      //   仅双败淘汰、且不建议与 deSplitTop（分组起跑）同时开启。
+      deCrossDrop: false,
       // 淘汰赛自动规划（由「晋级人数 + 本阶段人数」算出，生成对阵时写入）
       elimTarget: null,    // 本阶段要留下的人数（= 晋级人数；最后一阶段为 1）
       elimRounds: null,    // 总轮数
@@ -851,6 +861,10 @@
       if (s.deSplit === undefined) s.deSplit = null;
       // 双败：平局判双方都输
       if (s.drawBothLose === undefined) s.drawBothLose = false;
+      // 双败：半区互换
+      if (s.deCrossDrop === undefined) s.deCrossDrop = false;
+      // 手动摆放首轮位
+      if (s.bracketSlots === undefined) s.bracketSlots = null;
       // 阶段级局制 / 记分（旧存档无此字段 → 沿用全局）
       if (s.useFormat === undefined) s.useFormat = false;
       if (s.useScoring === undefined) s.useScoring = false;

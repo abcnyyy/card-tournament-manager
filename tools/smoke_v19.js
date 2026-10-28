@@ -108,7 +108,8 @@ const FIND_SEL = `function findSel(re){
     return s?[].slice.call(s.options).map(function(o){return o.textContent}):[];
   })()`);
   console.log('    选项：', JSON.stringify(drawOpts));
-  ok('有「编排方式」下拉', drawOpts.length === 3, drawOpts);
+  ok('有「编排方式」下拉（4 种，v2.2 新增手动摆放）', drawOpts.length === 4, drawOpts);
+  ok('含 v2.2 新增的「手动摆放首轮位」', drawOpts.some(x => x.indexOf('手动摆放首轮位') >= 0), drawOpts);
   ok('含种子 / 分档 / 随机三种', drawOpts.some(x => /种子/.test(x)) &&
     drawOpts.some(x => /分档/.test(x)) && drawOpts.some(x => /随机/.test(x)), drawOpts);
 

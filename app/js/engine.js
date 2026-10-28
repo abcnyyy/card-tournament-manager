@@ -1741,6 +1741,24 @@
     var slots = E.bracketSlots(seeded, size, rank);
     var mode = (stage && stage.drawMode) || 'seed';
     if (mode === 'seed' || !seeded.length) return slots;
+    // 手动摆放首轮位：直接返回用户排好的 bracket 位置（长度 = size，null = 轮空位）
+    if (mode === 'manual') {
+      var man = stage.bracketSlots;
+      // 校验：长度必须等于规模、不能重复、且必须正好是这批选手（多一个少一个都会把
+      // 对阵摆歪，比如两人都没填的空桌会被当成「未完成的比赛」卡住整轮）。
+      if (man && man.length === size) {
+        var seen = {}, uniq = true, cnt = 0;
+        for (var mi = 0; mi < man.length; mi++) {
+          if (!man[mi]) continue;
+          cnt++;
+          if (seen[man[mi]] || seeded.indexOf(man[mi]) < 0) { uniq = false; break; }
+          seen[man[mi]] = 1;
+        }
+        if (uniq && cnt === seeded.length) return man.slice();
+      }
+      // 还没摆放 / 摆得不对就退回种子位，保证仍能生成对阵
+      return slots;
+    }
 
     var seedKey = (stage && parseInt(stage.drawSeed, 10)) ? parseInt(stage.drawSeed, 10) : 0;
     var rng = U.makeRng(seedKey || (U.randomSeed() + (t && t.seed ? t.seed : 0)));
@@ -1799,6 +1817,9 @@
     }
     if ((stage.drawMode || 'seed') === 'seed') {
       return { ok: false, msg: '当前是「按种子号编排」，请先在设置里改成抽签方式' };
+    }
+    if ((stage.drawMode || 'seed') === 'manual') {
+      return { ok: false, msg: '当前是「手动摆放首轮位」：直接调整座位后重新「生成首轮对阵」即可，无需重新抽签' };
     }
     var rd = stage.roundsData[0];
     if (!rd) return { ok: false, msg: '还没生成首轮对阵，直接点「生成首轮对阵」即可抽签' };
@@ -1895,7 +1916,9 @@
     E.settleDropped(t, stage);
 
     // 上一轮必须全部完成，才能生成新一轮
-    if (stage.roundsData.length) {
+    // （小组赛·手动编排例外：各组各自落一轮，别的组没打完不该卡住本组）
+    var perGroupManual = (stage.type === 'groups' && (stage.pairMode || 'auto') === 'manual');
+    if (stage.roundsData.length && !perGroupManual) {
       var lastRd = stage.roundsData[stage.roundsData.length - 1];
       var chkPrev = E.roundComplete(t, stage, lastRd);
       if (!chkPrev.ok) return { ok: false, msg: '请先完成上一轮：' + chkPrev.msg };
@@ -1960,6 +1983,13 @@
         if (res.bye) byes.push(res.bye);
       }
     } else if (stage.type === 'round_robin') {
+      // 手动编排：每轮由用户在「对阵与录入」页点选配对
+      if ((stage.pairMode || 'auto') === 'manual') {
+        return {
+          ok: false, needManual: true,
+          msg: '本阶段按「手动编排」配对：请点「手动编排本轮」，自己点选配对后再确认。'
+        };
+      }
       // 一次性生成所有轮次
       if (stage.roundsData.length === 0) {
         var all = F.roundRobinRounds(alive, stage.cycles);
@@ -2172,6 +2202,8 @@
     }
     return {
       matches: ms,
+      slotsW: fs.slotsW,      // 胜者组座位表（半区互换按「首轮对阵位」分上下半区要用）
+      slotsL: fs.slotsL,
       wSize: fs.wSize,
       lSize: fs.lSize,
       wSeeds: fs.wSeeds,
@@ -2263,7 +2295,19 @@
       if (!(parseInt(stage.drawSeed, 10) > 0)) stage.drawSeed = U.randomSeed();
       // 分组起跑：排名前 N 进胜者组，其余从败者组打起（未设置则全部进胜者组）
       var fr = E.deFirstRound(t, stage, seeded);
-      stage.de = F.createDEState(fr.wSeeds, fr.wSize);
+      var cross = !!stage.deCrossDrop;
+      var halfOf = {};
+      if (cross) {
+        // 半区按「首轮对阵位」平分：座位表上半段 = 上半区，下半段 = 下半区。
+        // 这样上下半区就是对阵图上的上、下两半，符合通行的 crossover 口径
+        //（上半区胜者组的败者交叉掉进下半区败者组，反之亦然）。
+        var slotArr = fr.slotsW || [];
+        var halfN = Math.floor(slotArr.length / 2);
+        slotArr.forEach(function (id, idx) { if (id) halfOf[id] = (idx < halfN) ? 0 : 1; });
+        // 从败者组起跑的人（deSplitTop）也要有归属：按座位表顺序接到后半段
+        (fr.lSeeds || []).forEach(function (id) { if (!(id in halfOf)) halfOf[id] = 1; });
+      }
+      stage.de = F.createDEState(fr.wSeeds, fr.wSize, { cross: cross, halfOf: halfOf });
       if (fr.split) stage.de.l = fr.lSeeds.slice();
       stage.bracketSize = fr.wSize;
       stage.deSplit = fr.split;
@@ -2289,14 +2333,35 @@
 
     var rIdx = stage.roundsData.length;
     var ms = [];
-    nx.pairsW.forEach(function (p) {
-      var m = E.mkMatch(rIdx, p[0], p[1], null);
-      m.bracket = 'W';
-      ms.push(m);
-    });
-    nx.pairsL.forEach(function (p) { var m = E.mkMatch(rIdx, p[0], p[1], null); m.bracket = 'L'; ms.push(m); });
-    nx.byesW.forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'W'; m.isBye = true; ms.push(m); });
-    nx.byesL.forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'L'; m.isBye = true; ms.push(m); });
+    function pushW(p) {
+      if (p[0] && p[1]) { var m = E.mkMatch(rIdx, p[0], p[1], null); m.bracket = 'W'; ms.push(m); }
+      else { var bm = E.mkMatch(rIdx, p[0] || p[1], null, null); bm.bracket = 'W'; bm.isBye = true; ms.push(bm); }
+    }
+    function pushL(p, half) {
+      if (p[0] && p[1]) { var m = E.mkMatch(rIdx, p[0], p[1], null); m.bracket = 'L'; m.lbHalf = half; ms.push(m); }
+      else { var bm = E.mkMatch(rIdx, p[0] || p[1], null, null); bm.bracket = 'L'; bm.lbHalf = half; bm.isBye = true; ms.push(bm); }
+    }
+    if (stage.de.cross) {
+      nx.lbTop.forEach(function (p) { pushL(p, 'T'); });
+      nx.lbBot.forEach(function (p) { pushL(p, 'B'); });
+      (nx.byesLT || []).forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'L'; m.lbHalf = 'T'; m.isBye = true; ms.push(m); });
+      (nx.byesLB || []).forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'L'; m.lbHalf = 'B'; m.isBye = true; ms.push(m); });
+      if (nx.lbCrossPair) {
+        var cm = E.mkMatch(rIdx, nx.lbCrossPair[0], nx.lbCrossPair[1], null);
+        cm.bracket = 'L'; cm.isLBCross = true; ms.push(cm);
+      }
+      nx.pairsW.forEach(function (p) { pushW(p); });
+      (nx.byesW || []).forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'W'; m.isBye = true; ms.push(m); });
+    } else {
+      nx.pairsW.forEach(function (p) {
+        var m = E.mkMatch(rIdx, p[0], p[1], null);
+        m.bracket = 'W';
+        ms.push(m);
+      });
+      nx.pairsL.forEach(function (p) { var m = E.mkMatch(rIdx, p[0], p[1], null); m.bracket = 'L'; ms.push(m); });
+      nx.byesW.forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'W'; m.isBye = true; ms.push(m); });
+      nx.byesL.forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'L'; m.isBye = true; ms.push(m); });
+    }
 
     // 总决赛：加赛局 / 让局 / 可升格决赛 的标记
     if (nx.gf) {
@@ -2323,8 +2388,8 @@
       var pb = t.players.filter(function (x) { return x.id === (m.playerA || m.playerB); })[0];
       if (pb) pb.hasBye = true;
     });
-    stage.roundsData.push({ index: rIdx, matches: ms, isGF: !!nx.gf, gfReset: !!nx.gfReset, committed: false });
-    return { ok: true, roundIndex: rIdx, isGF: !!nx.gf, gfReset: !!nx.gfReset };
+    stage.roundsData.push({ index: rIdx, matches: ms, isGF: !!nx.gf, gfReset: !!nx.gfReset, isLBCross: !!nx.lbCrossPair, committed: false });
+    return { ok: true, roundIndex: rIdx, isGF: !!nx.gf, gfReset: !!nx.gfReset, isLBCross: !!nx.lbCrossPair };
   };
 
   /* ---- 双败：把退赛者从状态机里剔除 ---- */
@@ -2332,7 +2397,7 @@
     if (!stage || !stage.de) return 0;
     var dead = E.droppedMap(t);
     var n = 0;
-    ['w', 'l', 'pending'].forEach(function (k) {
+    ['w', 'l', 'pending', 'lTop', 'lBot', 'pendingTop', 'pendingBot'].forEach(function (k) {
       if (!Array.isArray(stage.de[k])) return;
       var before = stage.de[k].length;
       stage.de[k] = stage.de[k].filter(function (id) { return !dead[id]; });
@@ -2548,7 +2613,26 @@
     var rIdx = stage.roundsData.length;
     var matches = [];
     var any = false;
-
+    // 手动编排：循环赛 / 瑞士轮 组内由用户在「对阵与录入」页按组点选配对
+    if ((stage.pairMode || 'auto') === 'manual' &&
+      (stage.groupType === 'round_robin' || stage.groupType === 'swiss')) {
+      var pending = [], pendingIdx = [];
+      for (var gi = 0; gi < stage.groups.length; gi++) {
+        var gg = stage.groups[gi];
+        if (gg.finished) continue;
+        var galive = gg.players.filter(function (id) {
+          return (stage.eliminated || []).indexOf(id) < 0 &&
+            (stage.clinched || []).indexOf(id) < 0;
+        });
+        if (galive.length >= 2) { pending.push(gg.name); pendingIdx.push(gi); }
+      }
+      return {
+        ok: false, needManual: true, groups: pending, groupIdx: pendingIdx,
+        msg: pending.length
+          ? ('本小组赛按「手动编排」配对，请点「手动编排本轮」，按组点选配对后确认（待编排：' + pending.join('、') + '）')
+          : '所有小组的本轮都无需编排'
+      };
+    }
     for (var gi = 0; gi < stage.groups.length; gi++) {
       var g = stage.groups[gi];
       if (g.finished) continue;
@@ -2880,29 +2964,134 @@
   };
 
   /** 本轮可编排的选手名单（未淘汰、未提前晋级、未退赛） */
-  E.manualPool = function (t, stage) {
+  E.manualPool = function (t, stage, groupIdx) {
     stage = stage || t.stages[t.currentStage];
+    if (stage.type === 'groups' && groupIdx != null && stage.groups && stage.groups[groupIdx]) {
+      var g = stage.groups[groupIdx];
+      return g.players.filter(function (id) {
+        return (stage.eliminated || []).indexOf(id) < 0 &&
+          (stage.clinched || []).indexOf(id) < 0;
+      });
+    }
     return E.aliveInStage(t, stage).slice();
   };
 
-  /** 当前阶段能不能进入手动编排（瑞士轮专用） */
-  E.canManualArrange = function (t, stage, rd) {
+  /** 小组赛：还有哪些组需要（且能）编排本轮 —— 手动编排时界面靠它列组 */
+  E.groupArrangePending = function (stage) {
+    var out = [];
+    if (!stage || stage.type !== 'groups') return out;
+    (stage.groups || []).forEach(function (g, gi) {
+      if (g.finished) return;
+      var alive = (g.players || []).filter(function (id) {
+        return (stage.eliminated || []).indexOf(id) < 0 && (stage.clinched || []).indexOf(id) < 0;
+      });
+      if (alive.length >= 2) out.push({ idx: gi, name: g.name, count: alive.length });
+    });
+    return out;
+  };
+
+  /** 当前阶段/小组能不能进入手动编排（瑞士轮 / 循环赛 / 小组内循环赛·瑞士轮） */
+  E.canManualArrange = function (t, stage, rd, opts) {
+    opts = opts || {};
     stage = stage || t.stages[t.currentStage];
     if (!stage) return { ok: false, msg: '无当前阶段' };
-    if (stage.type !== 'swiss') return { ok: false, msg: '手动编排用于瑞士轮；淘汰赛请用抽签方式生成首轮' };
-    var cur = (rd === undefined) ? E.currentRound(stage) : rd;
-    if (cur) {
-      var chk = E.canArrangeRound(t, stage, cur);
-      if (!chk.ok) return chk;
-      return { ok: true, replace: true, roundIndex: cur.index };
+    // 淘汰赛的「手动」是首轮位摆放（drawMode='manual'），不在这里处理
+    if (stage.type === 'single_elim' || stage.type === 'double_elim') {
+      return { ok: false, msg: '淘汰赛的手动编排请用设置里的「手动摆放首轮位」，在生成首轮前排好座位' };
     }
-    var alive = E.manualPool(t, stage);
-    if (alive.length < 2) return { ok: false, msg: '可出赛选手不足 2 人' };
-    if (stage.roundsData.length) {
-      var rc = E.roundComplete(t, stage, stage.roundsData[stage.roundsData.length - 1]);
+    if (stage.type === 'round_robin') {
+      if ((stage.pairMode || 'auto') !== 'manual') {
+        return { ok: false, msg: '循环赛需把「每轮配对方式」设为「手动编排」才能手动点选配对' };
+      }
+    } else if (stage.type === 'groups') {
+      if ((stage.pairMode || 'auto') !== 'manual') {
+        return { ok: false, msg: '小组赛需把「每轮配对方式」设为「手动编排」才能手动点选配对（按组分别编排）' };
+      }
+      if (opts.groupIdx == null || !stage.groups || !stage.groups[opts.groupIdx]) {
+        return { ok: false, msg: '请先选择要编排的小组', pending: E.groupArrangePending(stage) };
+      }
+    } else if (stage.type !== 'swiss') {
+      return { ok: false, msg: '手动编排仅支持瑞士轮 / 循环赛 / 小组赛' };
+    }
+    var pool = E.manualPool(t, stage, opts.groupIdx);
+    if (pool.length < 2) return { ok: false, msg: '可出赛选手不足 2 人' };
+    var lastRd = null;
+    if (opts.groupIdx != null) {
+      // 小组赛：只看「本组」的最后一轮（各组的轮次是各自独立的，不能拿别组的轮次来卡）
+      for (var q = stage.roundsData.length - 1; q >= 0; q--) {
+        var cand = stage.roundsData[q];
+        if (cand.group === opts.groupIdx ||
+          (cand.matches || []).some(function (m) { return m.group === opts.groupIdx; })) { lastRd = cand; break; }
+      }
+    } else {
+      lastRd = stage.roundsData[stage.roundsData.length - 1];
+    }
+    if (lastRd) {
+      var rc = E.roundComplete(t, stage, lastRd);
       if (!rc.ok) return { ok: false, msg: '请先完成上一轮：' + rc.msg };
     }
-    return { ok: true, replace: false, roundIndex: stage.roundsData.length };
+    // 小组赛：告诉界面还有哪些组需要编排（手动模式下每组各自落一轮）
+    var pending = (stage.type === 'groups') ? E.groupArrangePending(stage) : null;
+    return { ok: true, replace: false, roundIndex: stage.roundsData.length, groupIdx: opts.groupIdx, pending: pending };
+  };
+
+  /**
+   * 淘汰赛「手动摆放首轮位」：告诉界面要摆几个位、候选有谁、现在是怎样的座位。
+   * 只在首轮尚未生成时可用（生成了就先「回退一步」）。
+   * @return { ok, size, slots:[id|null], pool:[id], split, lCount, msg }
+   */
+  E.manualSlots = function (t, stage) {
+    stage = stage || (t && t.stages[t.currentStage]);
+    if (!stage) return { ok: false, msg: '无当前阶段' };
+    if (stage.type !== 'single_elim' && stage.type !== 'double_elim') {
+      return { ok: false, msg: '只有单败 / 双败淘汰赛需要摆放首轮位' };
+    }
+    if ((stage.drawMode || 'seed') !== 'manual') {
+      return { ok: false, msg: '请先在阶段设置里把「首轮编排方式」改成「手动摆放首轮位」' };
+    }
+    if ((stage.roundsData || []).length) {
+      return { ok: false, msg: '首轮对阵已经生成。想重新摆放，请先「回退一步」把首轮清掉' };
+    }
+    var dead = E.droppedMap(t);
+    var alive = E.aliveInStage(t, stage).filter(function (id) { return !dead[id]; });
+    if (alive.length < 2) return { ok: false, msg: '可出赛选手不足 2 人' };
+    var seeded = alive.slice().sort(function (a, b) {
+      var pa = t.players.filter(function (x) { return x.id === a; })[0] || {};
+      var pb = t.players.filter(function (x) { return x.id === b; })[0] || {};
+      return (pa.seed || 9999) - (pb.seed || 9999);
+    });
+
+    var size, pool, splitOn = false, lCount = 0;
+    if (stage.type === 'single_elim') {
+      var plan = E.elimPlan(seeded.length, E.elimTarget(t, stage));
+      size = Math.max(2, plan.size);
+      pool = seeded;
+    } else {
+      // 双败：只摆「胜者组」的座位表；启用了「前 N 名从胜者组起跑」时，
+      // 进胜者组的人由排名决定（pool = 排名前 N），败者组那边仍按种子排。
+      var sp = E.deSplitOf(t, stage, seeded);
+      size = U.nextPow2(Math.max(2, sp.w.length));
+      pool = sp.w.slice();
+      splitOn = !!sp.on;
+      lCount = splitOn ? sp.l.length : 0;
+    }
+
+    var cur = null;
+    if (stage.bracketSlots && stage.bracketSlots.length === size) cur = stage.bracketSlots.slice();
+    if (!cur) {
+      // 用标准种子位当「初始建议」，用户在此基础上拖动即可
+      cur = E.bracketSlots(pool, size, E.rankOrderIds(t, stage, pool));
+    }
+    // 已被退赛的人从座位上清掉，避免出现幽灵选手
+    cur = cur.map(function (id) { return (id && pool.indexOf(id) >= 0) ? id : null; });
+
+    return {
+      ok: true, size: size, slots: cur, pool: pool, seeded: seeded,
+      split: splitOn, lCount: lCount,
+      byes: size - pool.length,
+      msg: (stage.type === 'double_elim' ? '胜者组座位表' : '首轮座位表') +
+        '：' + size + ' 个位置，' + pool.length + ' 人参赛，其中 ' + (size - pool.length) + ' 个轮空位'
+    };
   };
 
   /**
@@ -2915,20 +3104,14 @@
     var si = (stageIndex === undefined) ? t.currentStage : stageIndex;
     var stage = t.stages[si];
     if (!stage) return { ok: false, msg: '无此阶段' };
-    if (stage.type !== 'swiss') {
-      return { ok: false, msg: '手动编排用于瑞士轮；淘汰赛请用「分档抽签 / 随机抽签」' };
+    if (stage.type !== 'swiss' && stage.type !== 'round_robin' && stage.type !== 'groups') {
+      return { ok: false, msg: '手动编排仅支持瑞士轮 / 循环赛 / 小组赛' };
     }
-    // replace = 覆盖本轮已有的对阵（只允许在没有成绩时）
-    var oldRd = null;
-    if (opts.replace) {
-      oldRd = E.currentRound(stage);
-      var ck = E.canArrangeRound(t, stage, oldRd);
-      if (!ck.ok) return ck;
-    } else if (stage.roundsData.length) {
-      var chk = E.roundComplete(t, stage, stage.roundsData[stage.roundsData.length - 1]);
-      if (!chk.ok) return { ok: false, msg: '请先完成上一轮：' + chk.msg };
+    var gi = (stage.type === 'groups') ? opts.groupIdx : null;
+    if (stage.type === 'groups' && (gi == null || !stage.groups || !stage.groups[gi])) {
+      return { ok: false, msg: '请先选择要编排的小组' };
     }
-    var alive = E.manualPool(t, stage);
+    var alive = E.manualPool(t, stage, gi);
     var pool = {};
     alive.forEach(function (id) { pool[id] = true; });
 
@@ -2959,23 +3142,41 @@
     }
     if (!clean.length) return { ok: false, msg: '至少要安排 1 桌对阵' };
 
-    var rIdx = opts.replace ? oldRd.index : stage.roundsData.length;
-    var ms = clean.map(function (p) { return E.mkMatch(rIdx, p[0], p[1], null); });
-    if (byeId) {
-      var bm = E.mkMatch(rIdx, byeId, null, null);
-      bm.isBye = true;
-      ms.push(bm);
+    // 顶层（瑞士轮 / 循环赛）：允许在没有成绩时覆盖最后一轮；小组：每组独立落一轮
+    var rIdx, newRd, ms;
+    if (stage.type !== 'groups' && opts.replace) {
+      var oldRd = E.currentRound(stage);
+      var ck = E.canArrangeRound(t, stage, oldRd);
+      if (!ck.ok) return ck;
+      rIdx = oldRd.index;
+      ms = clean.map(function (p) { return E.mkMatch(rIdx, p[0], p[1], gi); });
+      if (byeId) {
+        var bm2 = E.mkMatch(rIdx, byeId, null, gi);
+        bm2.isBye = true;
+        ms.push(bm2);
+      }
+      ms.forEach(function (m) { E.evaluate(m, E.fmtOfMatch(t, stage, m), stage.tie); });
+      newRd = { index: rIdx, matches: ms, manual: true, group: gi };
+      stage.roundsData[stage.roundsData.length - 1] = newRd;
+    } else {
+      rIdx = stage.roundsData.length;
+      ms = clean.map(function (p) { return E.mkMatch(rIdx, p[0], p[1], gi); });
+      if (byeId) {
+        var bm = E.mkMatch(rIdx, byeId, null, gi);
+        bm.isBye = true;
+        ms.push(bm);
+      }
+      ms.forEach(function (m) { E.evaluate(m, E.fmtOfMatch(t, stage, m), stage.tie); });
+      newRd = { index: rIdx, matches: ms, manual: true, group: gi };
+      stage.roundsData.push(newRd);
     }
-    ms.forEach(function (m) { E.evaluate(m, E.fmtOfMatch(t, stage, m), stage.tie); });
-    var newRd = { index: rIdx, matches: ms, manual: true };
-    if (opts.replace) stage.roundsData[stage.roundsData.length - 1] = newRd;
-    else stage.roundsData.push(newRd);
     stage.status = 'running';
     if (byeId) {
       var pb = t.players.filter(function (x) { return x.id === byeId; })[0];
       if (pb) pb.hasBye = true;
     }
-    return { ok: true, msg: '已生成第 ' + (rIdx + 1) + ' 轮：' + clean.length + ' 桌' + (byeId ? '，' + E.nameOf(t, byeId) + ' 轮空' : '') };
+    var where = (stage.type === 'groups') ? (stage.groups[gi].name + ' · ') : '';
+    return { ok: true, msg: '已生成' + where + '第 ' + (rIdx + 1) + ' 轮：' + clean.length + ' 桌' + (byeId ? '，' + E.nameOf(t, byeId) + ' 轮空' : '') };
   };
 
   /* ============ 手动编排 / 随机抽签 ============ */
