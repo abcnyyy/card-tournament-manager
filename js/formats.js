@@ -257,8 +257,9 @@
    *   gfCount 已打完的总决赛场次（0 / 1 / 2）
    *   gfFirst 总决赛首场胜者（'A' = 胜者组冠军，'B' = 败者组冠军）
    */
-  F.createDEState = function (ids, size) {
-    return {
+  F.createDEState = function (ids, size, opts) {
+    opts = opts || {};
+    var st = {
       size: size,
       w: ids.slice(),      // 胜者组存活
       l: [],               // 败者组存活
@@ -267,6 +268,23 @@
       gfCount: 0,          // 已进行的总决赛场次
       gfFirst: null        // 总决赛首场胜者（用于判断是否加赛）
     };
+    if (opts.cross) {
+      // 半区互换（crossover）：按初始 bracket 位置把全场平分为上下半区。
+      // 胜者组某半区的败者交叉掉入「另一个」半区的败者组。
+      // 两个败者组半区（lTop 收底部 WB 败者 / lBot 收顶部 WB 败者）各自打完后，
+      // 在总决赛前通过「败者组交叉决赛」汇合出败者组冠军。
+      st.cross = true;
+      st.halfOf = opts.halfOf || {};
+      st.lTop = [];        // 上半区败者组（接收下半区 WB 掉下来的败者）
+      st.lBot = [];        // 下半区败者组（接收上半区 WB 掉下来的败者）
+      st.pendingTop = [];  // 上半区 WB 刚输的人（掉进 lBot）
+      st.pendingBot = [];  // 下半区 WB 刚输的人（掉进 lTop）
+      st.lTopDone = null;  // 上半区败者组冠军
+      st.lBotDone = null;  // 下半区败者组冠军
+      st.lChamp = null;    // 败者组交叉决赛冠军
+      st.lbCross = false;  // 是否已安排败者组交叉决赛
+    }
+    return st;
   };
 
   /**
@@ -277,6 +295,7 @@
    *           finished: bool, gf: bool, gfReset: bool }
    */
   F.doubleElimNext = function (de, opts) {
+    if (de.cross) return F.doubleElimNextCross(de, opts);
     opts = opts || {};
     var mode = opts.gfMode || 'reset';
     var res = { pairsW: [], pairsL: [], byesW: [], byesL: [], finished: false, gf: false, gfReset: false };
@@ -378,6 +397,7 @@
    *            这样场上只剩胜者组冠军一人，即本阶段冠军
    */
   F.doubleElimCommit = function (de, round, opts) {
+    if (de.cross) return F.doubleElimCommitCross(de, round, opts);
     var bothLose = !!(opts && opts.drawBothLose);
     var wW = [], wL = [], lW = [], i, m, win, lose;
     /* 判定一场比赛是不是「已结算的平局」 */
@@ -449,6 +469,189 @@
       });
     }
     de.l = lW;
+    return { ok: true };
+  };
+
+  /* ============ 双败：半区互换（crossover）状态机 ============ */
+  /**
+   * 单个败者组半区的「一轮」对阵（与标准 DE 的败者组逻辑一致，按 minor/major 交替）。
+   * @param survivors 该半区败者组当前存活
+   * @param pending   对侧胜者组刚掉下来的待注入败者
+   */
+  F.lbHalfNext = function (survivors, pending) {
+    var pairs = [], byes = [];
+    survivors = survivors || [];
+    pending = pending || [];
+    if (survivors.length + pending.length < 2) {
+      if (survivors.length + pending.length === 1) byes.push(survivors[0] || pending[0]);
+      return { pairs: pairs, byes: byes };
+    }
+    var pool, holdPending = false;
+    if (survivors.length >= 2 && survivors.length % 2 === 0 && pending.length !== survivors.length) {
+      pool = survivors.slice();
+      holdPending = true;
+    } else {
+      pool = survivors.concat(pending);
+    }
+    if (pool.length >= 2) {
+      var newPart = holdPending ? [] : pending;
+      var arr = [], maxLen = Math.max(survivors.length, newPart.length), k;
+      for (k = 0; k < maxLen; k++) {
+        if (k < survivors.length) arr.push(survivors[k]);
+        if (k < newPart.length) arr.push(newPart[newPart.length - 1 - k]);
+      }
+      if (arr.length % 2 === 1) {
+        var byeIdx = arr.length - 1;
+        byes.push(arr[byeIdx]);
+        arr.splice(byeIdx, 1);
+      }
+      var half = arr.length / 2;
+      for (k = 0; k < half; k++) {
+        var a = arr[k], b = arr[arr.length - 1 - k];
+        if (a && b) pairs.push([a, b]);
+        else if (a) byes.push(a);
+        else if (b) byes.push(b);
+      }
+    } else if (pool.length === 1) {
+      byes.push(pool[0]);
+    }
+    return { pairs: pairs, byes: byes };
+  };
+
+  F.doubleElimNextCross = function (de, opts) {
+    opts = opts || {};
+    var mode = opts.gfMode || 'reset';
+    var res = {
+      pairsW: [], pairsL: [], byesW: [], byesL: [],
+      lbTop: [], lbBot: [], byesLT: [], byesLB: [],
+      lbCrossPair: null, finished: false, gf: false, gfReset: false
+    };
+
+    // 胜者组只剩 1 人时，把对侧掉下来的待注入败者并入对应败者组，避免空轮
+    if (de.w.length <= 1) {
+      if (de.pendingTop.length) { de.lBot = de.lBot.concat(de.pendingTop); de.pendingTop = []; }
+      if (de.pendingBot.length) { de.lTop = de.lTop.concat(de.pendingBot); de.pendingBot = []; }
+    }
+
+    // ---- 总决赛：胜者组冠军 vs 败者组冠军 ----
+    if (de.w.length === 1 && de.lChamp) {
+      if (mode === 'reset') {
+        if (de.gfCount >= 2) { res.finished = true; return res; }
+        if (de.gfCount === 0) { res.gf = true; res.pairsW = [[de.w[0], de.lChamp]]; return res; }
+        if (de.gfFirst === 'A') { res.finished = true; return res; }
+        res.gf = true; res.gfReset = true; res.pairsW = [[de.w[0], de.lChamp]]; return res;
+      }
+      if (de.gfCount >= 1) { res.finished = true; return res; }
+      res.gf = true; res.pairsW = [[de.w[0], de.lChamp]]; return res;
+    }
+
+    // ---- 败者组交叉决赛：两个半区的败者组冠军汇合（由 commit 阶段写入 lTopDone/lBotDone）----
+    if (de.lTopDone != null && de.lBotDone != null) {
+      res.lbCrossPair = [de.lTopDone, de.lBotDone];
+      return res;
+    }
+
+    // ---- 胜者组 ----
+    if (de.w.length >= 2) {
+      res.pairsW = F.chunkPairs(de.w);
+      for (var i = 0; i < res.pairsW.length; i++) {
+        if (res.pairsW[i][1] === null) { res.byesW.push(res.pairsW[i][0]); res.pairsW.splice(i, 1); i--; }
+      }
+    }
+
+    // ---- 两个败者组半区（各自 fed by 对侧胜者组败者）----
+    var lt = F.lbHalfNext(de.lTop, de.pendingTop);
+    lt.pairs.forEach(function (p) { res.lbTop.push(p); });
+    lt.byes.forEach(function (b) { res.byesLT.push(b); });
+    var lbn = F.lbHalfNext(de.lBot, de.pendingBot);
+    lbn.pairs.forEach(function (p) { res.lbBot.push(p); });
+    lbn.byes.forEach(function (b) { res.byesLB.push(b); });
+
+    res.pairsL = res.lbTop.concat(res.lbBot);
+    res.byesL = res.byesLT.concat(res.byesLB);
+    return res;
+  };
+
+  F.doubleElimCommitCross = function (de, round, opts) {
+    var bothLose = !!(opts && opts.drawBothLose);
+    var wW = [], lTopW = [], lBotW = [], i, m, win, lose;
+    var newPendingTop = [], newPendingBot = [];   // 本轮胜者组掉下来的败者（cross 路由）
+    var lbTopPlayed = {}, lbBotPlayed = {};        // 本轮各半区败者组实际打过的选手
+    function drawn(x) {
+      return !!(bothLose && x.result && x.result.settled && x.result.winner === null
+        && !x.isBye && !x.voided && x.playerA && x.playerB);
+    }
+    for (i = 0; i < round.matches.length; i++) {
+      m = round.matches[i];
+      if (!m.playerA && !m.playerB) continue;
+      if (m.voided) continue;
+      if (m.isBye) {
+        var alone = m.playerA || m.playerB;
+        if (m.isLBCross) { de.lChamp = alone; }
+        else if (m.bracket === 'W') wW.push(alone);
+        else if (m.lbHalf === 'T') lTopW.push(alone);
+        else lBotW.push(alone);
+        continue;
+      }
+      if (drawn(m)) {
+        if (m.isLBCross) { /* 平局双败：交叉决赛平局 → 双方淘汰，无败者组冠军 */ continue; }
+        if (m.bracket === 'W') {
+          // 胜者组平局 = 双方都掉进对侧败者组
+          var ha = de.halfOf[m.playerA], hb = de.halfOf[m.playerB];
+          if (ha === 0) newPendingBot.push(m.playerA); else newPendingTop.push(m.playerA);
+          if (hb === 0) newPendingBot.push(m.playerB); else newPendingTop.push(m.playerB);
+        }
+        // 败者组平局 = 双方各吃到第 2 负，双双淘汰
+        continue;
+      }
+      if (!m.result || !m.result.winner) return { ok: false, msg: '存在未完成的比赛' };
+      win = (m.result.winner === 'A') ? m.playerA : m.playerB;
+      lose = (m.result.winner === 'A') ? m.playerB : m.playerA;
+      if (m.isLBCross) { de.lChamp = win; continue; }
+      if (m.isGF) {
+        if (de.gfCount === 0) { de.gfCount = 1; de.gfFirst = m.result.winner; }
+        else { de.gfCount = 2; }
+        continue;
+      }
+      if (m.bracket === 'W') {
+        wW.push(win);
+        var lh = de.halfOf[lose];
+        if (lh === 0) newPendingBot.push(lose); else newPendingTop.push(lose);
+      } else if (m.lbHalf === 'T') {
+        lTopW.push(win); lbTopPlayed[m.playerA] = 1; lbTopPlayed[m.playerB] = 1;
+      } else {
+        lBotW.push(win); lbBotPlayed[m.playerA] = 1; lbBotPlayed[m.playerB] = 1;
+      }
+    }
+
+    // 总决赛（GF）是「胜者组冠军 vs 败者组冠军」的收尾战，它属于一种 W 组比赛，
+    // 但胜者组冠军(de.w[0])是最终决赛选手、不能被当成普通胜者组比赛清空，
+    // 否则赛后会误判「胜者组已无人」而卡在 unfinished。
+    var hasGF = round.matches.some(function (x) { return x.isGF; });
+    if (!hasGF && round.matches.some(function (x) { return x.bracket === 'W'; })) {
+      de.w = wW;
+      de.pendingTop = newPendingTop.concat(de.pendingTop.filter(function (x) { return !lbTopPlayed[x]; }));
+      de.pendingBot = newPendingBot.concat(de.pendingBot.filter(function (x) { return !lbBotPlayed[x]; }));
+    } else {
+      // 本轮只有败者组比赛：保留未上场的待注入
+      de.pendingTop = de.pendingTop.filter(function (x) { return !lbTopPlayed[x]; });
+      de.pendingBot = de.pendingBot.filter(function (x) { return !lbBotPlayed[x]; });
+    }
+    de.lTop = lTopW;
+    de.lBot = lBotW;
+
+    // 半区冠军判定：胜者组已打完（不会再往下半区掉人）后，某半区存活(含待注入)仅剩 1 人 → 其冠军
+    if (de.w.length <= 1 && !de.lbCross) {
+      var topRemain = de.lTop.length + de.pendingTop.length;
+      var botRemain = de.lBot.length + de.pendingBot.length;
+      if (topRemain === 1 && de.lTopDone == null) de.lTopDone = (de.lTop[0] != null) ? de.lTop[0] : de.pendingTop[0];
+      if (botRemain === 1 && de.lBotDone == null) de.lBotDone = (de.lBot[0] != null) ? de.lBot[0] : de.pendingBot[0];
+      if (topRemain === 0) de.lTopDone = null;
+      if (botRemain === 0) de.lBotDone = null;
+      // 只有一个半区出冠军（另一半区已全员淘汰）→ 直接定败者组冠军
+      if (de.lTopDone != null && botRemain === 0) de.lChamp = de.lTopDone;
+      else if (de.lBotDone != null && topRemain === 0) de.lChamp = de.lBotDone;
+    }
     return { ok: true };
   };
 
