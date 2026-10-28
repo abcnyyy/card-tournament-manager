@@ -1150,6 +1150,41 @@
   /* =========================================================
      三、统计与排名
      ========================================================= */
+  /* ---- 警告 / 判负（v2.3）----
+     一场比赛里双方各自可以被记若干次「警告」与「判负」。
+     它们不改变这一场的胜负（胜负仍由比分决定），只作为纪律记录累计到选手身上，
+     并在破同（小分）里用：先比判负次数、再比警告次数，都是「越少越靠前」。
+       m.pen = { a: { warn: 0, forfeit: 0 }, b: { warn: 0, forfeit: 0 } } */
+  E.penOf = function (m) {
+    var p = (m && m.pen) || {};
+    function g(o, k) {
+      var n = parseInt(o && o[k], 10);
+      return (isNaN(n) || n < 0) ? 0 : n;
+    }
+    return {
+      a: { warn: g(p.a, 'warn'), forfeit: g(p.a, 'forfeit') },
+      b: { warn: g(p.b, 'warn'), forfeit: g(p.b, 'forfeit') }
+    };
+  };
+  // 设置某一方某项的次数：kind = 'warn'（警告）| 'forfeit'（判负）
+  E.penSet = function (m, side, kind, val) {
+    if (!m) return { ok: false, msg: '未找到该场比赛' };
+    if (side !== 'a' && side !== 'b') return { ok: false, msg: '只能给 A / B 两方记警告判负' };
+    if (kind !== 'warn' && kind !== 'forfeit') return { ok: false, msg: '类型只能是警告或判负' };
+    var n = parseInt(val, 10);
+    if (isNaN(n) || n < 0) n = 0;
+    if (n > 99) n = 99;
+    var p = E.penOf(m);
+    p[side][kind] = n;
+    m.pen = p;
+    return { ok: true, quiet: true, pen: p };
+  };
+  // 一场比赛有没有记过警告 / 判负（界面用来决定要不要显示徽标）
+  E.penAny = function (m) {
+    var p = E.penOf(m);
+    return !!(p.a.warn || p.a.forfeit || p.b.warn || p.b.forfeit);
+  };
+
   /**
    * @param scope {stage, groupIdx, playerIds}
    * @param upToRound 仅统计到第 N 轮（含），undefined = 全部
@@ -1204,6 +1239,10 @@
         // 累进分：每轮结束后「当时累计积分」的总和（第 0 轮记初始分），继承时在此之上继续累加
         progressive: r2(init + cBonus + bpg),
         stagePoints: 0,   // 上一阶段得分（用于跨阶段破同）
+        // 逐阶段得分（v2.3）：{'0': 第1阶段分, ...}，只有 tieOrder 里用到时才填
+        stagePts: null,
+        // 纪律记录（v2.3）：警告 / 判负次数，越少越靠前
+        warnings: 0, forfeits: 0,
         seed: pl.seed || 0,
         opponents: [], carry: 0
       };
@@ -1216,6 +1255,14 @@
       for (j = 0; j < ms.length; j++) {
         var m = ms[j];
         if (groupIdx !== null && groupIdx !== undefined && m.group !== groupIdx) continue;
+        // 警告 / 判负累计（v2.3）：只做纪律记录，不改本场胜负；
+        // 还没定案的比赛也照记（裁判常常边打边记）
+        var pn = E.penOf(m);
+        if (pn.a.warn || pn.a.forfeit || pn.b.warn || pn.b.forfeit) {
+          var pa0 = stats[m.playerA], pb0 = stats[m.playerB];
+          if (pa0) { pa0.warnings += pn.a.warn; pa0.forfeits += pn.a.forfeit; }
+          if (pb0) { pb0.warnings += pn.b.warn; pb0.forfeits += pn.b.forfeit; }
+        }
         if (!m.result) continue;
         // 未定案（打了部分局但还没分出胜负 / 加赛中）不计入任何成绩
         if (m.result.settled === false && !m.isBye) continue;
@@ -1307,6 +1354,24 @@
       }
     }
 
+    // 逐阶段得分（v2.3）：「第 N 阶段得分」可以分别作为独立破同依据。
+    // 只在 tieOrder 里真的用到时才算（每个阶段都要重算一次完整统计，不必白花时间）。
+    var wantSP = [];
+    (sc.tieOrder || []).forEach(function (k) {
+      var n = M.stageTieIdx(k);
+      if (n >= 0 && n < stage.index && wantSP.indexOf(n) < 0) wantSP.push(n);
+    });
+    if (wantSP.length) {
+      Object.keys(stats).forEach(function (id) { stats[id].stagePts = {}; });
+      wantSP.forEach(function (n) {
+        var pm = E.stageFinalPoints(t, n);
+        if (!pm) return;
+        Object.keys(stats).forEach(function (id) {
+          if (stats[id].stagePts) stats[id].stagePts[n] = pm[id] || 0;
+        });
+      });
+    }
+
     // 继承上一阶段分数（只带积分，不含小分）
     if (inh) {
       Object.keys(stats).forEach(function (id) {
@@ -1381,29 +1446,38 @@
     return map;
   };
 
+  /** 取某个破同依据在选手统计上的数值（大者靠前；「越少越靠前」的项这里取负） */
+  E.tieVal = function (s, key) {
+    if (!s) return 0;
+    switch (key) {
+      case 'points': return s.points;
+      case 'forfeit': return -(s.forfeits || 0);        // 判负越少越靠前（先比判负）
+      case 'warnings': return -(s.warnings || 0);       // 再比警告
+      case 'buchholz': return s.buchholz;
+      case 'gamesDiff': return s.gamesDiff;
+      case 'gamesWon': return s.gamesWon;
+      case 'gamesLost': return -(s.gamesLost || 0);      // 输得越少越靠前
+      case 'wins': return s.wins;
+      case 'progressive': return s.progressive || 0;
+      case 'cumulative': return s.cumulative;
+      case 'cumDiff': return s.cumDiff || 0;
+      case 'stagePoints': return s.stagePoints || 0;
+      case 'seed': return -(s.seed || 9999);
+      default:
+        // 逐阶段得分：stageP<阶段下标>
+        var spi = M.stageTieIdx(key);
+        if (spi >= 0) return (s.stagePts && s.stagePts[spi]) || 0;
+        return 0;
+    }
+  };
+
   // 按 tieOrder 生成比较器（sc 为阶段生效的记分配置）
   E.makeComparator = function (t, stats, h2h, sc) {
     sc = sc || E.scOf(t, null);
     // 允许为空数组：用户主动删除全部依据时表示「不比较，保持原顺序」
     var order = Array.isArray(sc.tieOrder) ? sc.tieOrder : M.defaultScoring().tieOrder;
     var manual = sc.manualOrder || {};
-
-    function val(s, key) {
-      switch (key) {
-        case 'points': return s.points;
-        case 'buchholz': return s.buchholz;
-        case 'gamesDiff': return s.gamesDiff;
-        case 'gamesWon': return s.gamesWon;
-        case 'gamesLost': return -(s.gamesLost || 0);      // 输得越少越靠前
-        case 'wins': return s.wins;
-        case 'progressive': return s.progressive || 0;
-        case 'cumulative': return s.cumulative;
-        case 'cumDiff': return s.cumDiff || 0;
-        case 'stagePoints': return s.stagePoints || 0;
-        case 'seed': return -(s.seed || 9999);
-        default: return 0;
-      }
-    }
+    var val = E.tieVal;
 
     return function (ia, ib) {
       var a = stats[ia], b = stats[ib];
@@ -1508,11 +1582,20 @@
     }
 
     // 计算名次（同分同名次）；分层也算进名次键，否则跨层同分会显示成同一名次
+    // v2.3：判负 / 警告若在破同依据里启用，也算进名次键 ——
+    //       否则会出现「排序上分成先后、名次却都显示 1」的矛盾，进而让名次分档两头不一致。
+    //       （逐阶段得分 / h2h / 种子只影响先后顺序，不参与「是否并列」的判定）
+    var penKeys = ['forfeit', 'warnings'].filter(function (k) {
+      return (sc.tieOrder || []).indexOf(k) >= 0;
+    });
     var list = [], rank = 0, prevKey = null;
     ids.forEach(function (id, i) {
       var s = stats[id];
       var lyr = layerOf(id);
       var key = lyr + '|' + String(s.points) + '|' + String(s.buchholz) + '|' + String(s.gamesDiff) + '|' + String(s.cumulative);
+      if (penKeys.length) {
+        key += '|' + penKeys.map(function (k) { return String(E.tieVal(s, k)); }).join('|');
+      }
       if (key !== prevKey) { rank = i + 1; prevKey = key; }
       var p = t.players.filter(function (x) { return x.id === id; })[0] || {};
       s.rank = rank;
@@ -3105,7 +3188,10 @@
     var stage = t.stages[si];
     if (!stage) return { ok: false, msg: '无此阶段' };
     if (stage.type !== 'swiss' && stage.type !== 'round_robin' && stage.type !== 'groups') {
-      return { ok: false, msg: '手动编排仅支持瑞士轮 / 循环赛 / 小组赛' };
+      return {
+        ok: false,
+        msg: '淘汰赛不能逐轮配桌（下一轮对手由胜负决定），请用设置里的「手动摆放首轮位」排首轮座位'
+      };
     }
     var gi = (stage.type === 'groups') ? opts.groupIdx : null;
     if (stage.type === 'groups' && (gi == null || !stage.groups || !stage.groups[gi])) {

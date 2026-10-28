@@ -366,6 +366,11 @@ tr.row-elim td { color: var(--fg-3); }
 .tag.lose { background: var(--danger-soft); color: var(--danger); }
 .tag.draw { background: var(--amber-soft); color: var(--amber); }
 .tag.de { background: var(--purple-soft); color: var(--purple); }
+/* v2.3：警告 / 判负（判负重红、警告琥珀） */
+.tag.penbad { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-line); font-weight: 600; }
+.tag.penwarn { background: var(--amber-soft); color: var(--amber); border-color: var(--amber-line); }
+.penbad { color: var(--danger); }
+.penwarn { color: var(--amber); }
 
 .notice {
   display: block;
@@ -703,6 +708,28 @@ tr.row-elim td { color: var(--fg-3); }
 .quickrow .hint { flex: 1 1 100%; }
 .qlabel { font-size: 11.5px; color: var(--fg-3); white-space: nowrap; }
 .qcolon { font-family: var(--font-mono); font-size: 13px; color: var(--fg-3); }
+
+/* 警告 / 判负（v2.3）：明细区里的两行纪律记录 */
+.penrow {
+  border-top: 1px dashed var(--line-3);
+  margin-top: 6px; padding-top: 7px;
+}
+.pen-title {
+  display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  font-size: 12px; font-weight: 600; color: var(--fg-2); margin-bottom: 5px;
+}
+.pen-title .hint { font-weight: 400; }
+.pen-line {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding: 2px 0;
+}
+.pen-who {
+  flex: 0 0 auto; max-width: 42%; font-size: 12.5px; font-weight: 500; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pen-cell { display: inline-flex; gap: 4px; align-items: center; }
+.pen-cell i { font-style: normal; font-size: 11.5px; color: var(--fg-3); }
+.pen-num { width: 48px; }
 
 /* 计时器一行 */
 .tmrow {

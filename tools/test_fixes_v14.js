@@ -239,7 +239,7 @@ section('4. 破同分依据可删除且不被回填');
 {
   const t = M.createTournament('TIE');
   const def = t.scoring.tieOrder.length;
-  ok('新建赛事带完整依据表（13 项）', def === 13, def);
+  ok('新建赛事带完整依据表（15 项，v2.3 起含判负 / 警告）', def === 15, def);
   ok('新建赛事无需迁移', t.scoring.tieMigrated === true);
 
   t.scoring.tieOrder = t.scoring.tieOrder.filter(function (k) {
@@ -247,7 +247,7 @@ section('4. 破同分依据可删除且不被回填');
   });
   S.normalize(t);
   S.normalize(t);
-  ok('删除 3 项后不会被 normalize 回填', t.scoring.tieOrder.length === 10, t.scoring.tieOrder.join(','));
+  ok('删除 3 项后不会被 normalize 回填', t.scoring.tieOrder.length === 12, t.scoring.tieOrder.join(','));
   ok('被删项确实不在列表中', t.scoring.tieOrder.indexOf('cumulative') < 0 &&
     t.scoring.tieOrder.indexOf('cumDiff') < 0 &&
     t.scoring.tieOrder.indexOf('stagePoints') < 0, t.scoring.tieOrder.join(','));
@@ -267,7 +267,7 @@ section('4. 破同分依据可删除且不被回填');
   }
   const o = mkOld();
   S.normalize(o);
-  ok('旧存档补齐到 13 项', o.scoring.tieOrder.length === 13, o.scoring.tieOrder.join(','));
+  ok('旧存档补齐到 15 项', o.scoring.tieOrder.length === 15, o.scoring.tieOrder.join(','));
   ok('旧存档原有顺序未被破坏（points 仍第一）', o.scoring.tieOrder[0] === 'points');
   ok('旧存档补齐后标记已迁移', o.scoring.tieMigrated === true);
 

@@ -113,7 +113,7 @@ ok('已录成绩后不允许改编排', r6.ok === false, r6.msg);
 // A7. 淘汰赛不允许手动编排
 let te = mk(8, 'single_elim', { __single: true });
 let r7 = E.commitManualRound(te, 0, [[te.stages[0].participants[0], te.stages[0].participants[1]]], null);
-ok('淘汰赛走抽签，不能用瑞士轮手动编排', r7.ok === false && /抽签/.test(r7.msg), r7.msg);
+ok('淘汰赛走首轮编排，不能用逐轮点选编排', r7.ok === false && /首轮|摆放|抽签/.test(r7.msg), r7.msg);
 
 sec('A2. 瑞士轮随机配对');
 let tr = mk(10, 'swiss', { rounds: 3, pairMode: 'random' });
@@ -149,7 +149,7 @@ ok('随机配对 3 轮打满', tr2.stages[0].roundsData.length === 3, tr2.stages
 sec('B. 淘汰赛首轮编排方式');
 
 const DRAW_MODE_NAMES = C.DRAW_MODES.map(x => x.key).join(',');
-ok('存在三种编排方式（种子 / 分档 / 随机）', DRAW_MODE_NAMES === 'seed,tier,random', DRAW_MODE_NAMES);
+ok('存在四种编排方式（种子 / 分档 / 随机 / 手动摆位）', DRAW_MODE_NAMES === 'seed,tier,random,manual', DRAW_MODE_NAMES);
 
 function firstRoundPairs(mode, n, opts) {
   const t = mk(n, 'single_elim', Object.assign({ drawMode: mode, drawSeed: 20260101 }, opts || {}));
