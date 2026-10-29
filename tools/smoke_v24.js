@@ -119,8 +119,13 @@ async function waitReady() {
   console.log('\n=== 3. 积分规则切换 ===');
   await click('[data-act="seasonRules"]');
   await sleep(450);
+  // v2.5：赛季默认是「各站自己的积分」，面板上只有三张方案卡；要改分值先选「赛季统一一套分值」
+  const planCards = await ev(`document.querySelectorAll('.plan-pick .plan-btn').length`);
+  ok('规则面板出现（三张方案卡）', planCards === 3, planCards);
+  await click('[data-act="seasonPlan"][data-plan="single"]');
+  await sleep(450);
   const formOK = await ev(`!!document.querySelector('[data-sbind="rule.mode"]')`);
-  ok('规则面板出现', formOK === true);
+  ok('切到「赛季统一一套分值」后出现分值设置', formOK === true);
   await pick('[data-sbind="rule.mode"]', 'win');
   await sleep(500);
   const afterWin = await ev(`(function(){

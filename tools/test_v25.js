@@ -297,15 +297,18 @@ sec('H. 归一化');
   ok('H5 阶段覆盖补成完整规则', r2.stageOv['0'].win && r2.stageOv['0'].win.perWin !== undefined);
   ok('H6 阶段覆盖强制 on=true', r2.stageOv['0'].on === true);
 
-  // 赛季 source 归一化：旧赛季 = season，新赛季 = tournament
+  // 赛季口径归一化（v2.5）：没主动选过方案的赛季，一律按各站自己的积分
   const old = { v: 1, id: 'se_x', name: '旧赛季', rule: { unit: 'tournament', mode: 'rank' } };
-  ok('H7 旧赛季（没有 source）→ season', S.normalizeSeason(old).rule.source === 'season');
+  ok('H7 旧赛季（没有 source/plan）→ 各站自己的积分', S.normalizeSeason(old).rule.source === 'tournament');
   const neu = M.defaultSeason('新赛季');
   ok('H8 新赛季默认 source=tournament', neu.rule.source === 'tournament', neu.rule.source);
   ok('H9 新赛季默认 6 个名次档位', neu.rule.rank.tiers.length === 6, neu.rule.rank.tiers.length);
   const keep = M.defaultSeason('显式的');
   keep.rule.source = 'season';
-  ok('H10 已有的 source 不会被覆盖', S.normalizeSeason(keep).rule.source === 'season');
+  keep.rule.plan = 'single';
+  keep.rule.planLock = true;   // 用户主动点过「赛季统一一套分值」
+  ok('H10 显式选过方案（planLock）才保留赛季统一口径',
+    S.normalizeSeason(keep).rule.source === 'season', keep.rule.source);
 }
 
 console.log('\n=====================================');

@@ -5347,11 +5347,26 @@
     if (plan === 'site') {
       var a = E.seasonTableBySite(season, tlist);
       a.plan = 'site';
+      // 兜底：一个站点都没启用「赛事积分榜」时，按各站算就是一片空白。
+      // 这种情况退回赛季自己的分值（老赛季本来就有），并明确提示怎么改成按各站算。
+      var allOff = a.units.length > 0 && a.units.every(function (u) { return !u.ptsOn; });
+      if (allOff && !a.rows.length) {
+        var b = E.seasonTableByRule(season, tlist);
+        b.plan = 'site';
+        b.siteFallback = true;
+        b.units.forEach(function (u, i) {
+          if (a.units[i]) { u.siteRule = a.units[i].siteRule; u.ptsOn = a.units[i].ptsOn; }
+        });
+        b.warnings = ['这些赛事都还没启用「赛事积分榜」，暂时按赛季自己那套分值计算。' +
+          '到任意一场赛事的「赛事设置 → 赛事积分榜」勾上启用并填好分值，就会自动改为按各站规则算。']
+          .concat(b.warnings);
+        return b;
+      }
       return a;
     }
-    var b = E.seasonTableByRule(season, tlist);
-    b.plan = plan;
-    return b;
+    var b2 = E.seasonTableByRule(season, tlist);
+    b2.plan = plan;
+    return b2;
   };
 
   /**
@@ -5373,6 +5388,8 @@
       u.ptsOn = !!(t.ptsRule && t.ptsRule.on);
       u.siteUnit = (t.ptsRule && t.ptsRule.unit === 'stage') ? 'stage' : 'tournament';
       u.siteMode = (t.ptsRule && t.ptsRule.mode) || 'rank';
+      // 这个站的原始规则（赛季页要用它显示「分数从哪来」，并知道是不是还没启用）
+      u.siteRule = t.ptsRule || null;
       if (!u.counted) return;
 
       var tp = E.tournamentPoints(t);

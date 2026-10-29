@@ -95,7 +95,7 @@ async function clickText(sel, text) {
     return {
       btnMerged: !!v.querySelector('[data-act="bracketMode"][data-mode="merged"]'),
       btnStage: !!v.querySelector('[data-act="bracketMode"][data-mode="stage"]'),
-      btnPrint: !!v.querySelector('[data-act="printMerged"]'),
+      btnPrint: !!v.querySelector('[data-act="imgMerged"]'),
       btnPdf: !!v.querySelector('[data-act="pdfMerged"]'),
       flow: !!v.querySelector('.mflow'),
       stages: v.querySelectorAll('.mstage').length,
@@ -107,7 +107,7 @@ async function clickText(sel, text) {
   })()`);
   ok('有「合并全部 … 个阶段」按钮', m1.btnMerged === true, m1);
   ok('有「只看所选阶段」按钮', m1.btnStage === true, m1);
-  ok('有「打印合并对阵图 / 存 PDF」按钮', m1.btnPrint === true && m1.btnPdf === true, [m1.btnPrint, m1.btnPdf]);
+  ok('有「导出合并图 JPG / 存 PDF」按钮', m1.btnPrint === true && m1.btnPdf === true, [m1.btnPrint, m1.btnPdf]);
   ok('默认就渲染出合并视图（.mflow）', m1.flow === true, m1);
   ok('合并视图里有 2 个阶段块', m1.stages === 2, m1.stages);
   ok('阶段之间有 1 条晋级衔接条', m1.links === 1, m1.links);

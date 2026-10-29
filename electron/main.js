@@ -107,6 +107,31 @@ ipcMain.handle('tms:saveFile', async function (ev, payload) {
   }
 });
 
+/* 保存二进制（JPG / PDF）：页面传 base64，这里解码成 Buffer 写盘 */
+ipcMain.handle('tms:saveBinary', async function (ev, payload) {
+  payload = payload || {};
+  var filename = safeName(payload.filename || '导出.jpg');
+  var ext = extOf(filename, payload.mime);
+  if (path.extname(filename) === '') filename += '.' + ext;
+  var win = BrowserWindow.fromWebContents(ev.sender) || mainWindow;
+  var def = path.join(app.getPath('documents'), filename);
+  var r = await dialog.showSaveDialog(win, {
+    title: '导出为文件',
+    defaultPath: def,
+    filters: filterOf(ext),
+    properties: ['createDirectory', 'showOverwriteConfirmation']
+  });
+  if (r.canceled || !r.filePath) return { ok: false, canceled: true, msg: '已取消导出' };
+  try {
+    var buf = Buffer.from(String(payload.base64 || ''), 'base64');
+    if (!buf.length) return { ok: false, msg: '导出内容为空' };
+    fs.writeFileSync(r.filePath, buf);
+    return { ok: true, path: r.filePath, msg: '已保存到：' + r.filePath };
+  } catch (e) {
+    return { ok: false, msg: '保存失败：' + e.message };
+  }
+});
+
 ipcMain.handle('tms:savePDF', async function (ev, payload) {
   payload = payload || {};
   var filename = safeName(payload.filename || '导出.pdf');

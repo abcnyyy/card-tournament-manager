@@ -172,6 +172,9 @@ function makeStop(names, opts) {
   }
   s.status = 'finished';
   t.status = 'finished';
+  if (opts.pts) {
+    t.ptsRule = Object.assign(M.defaultPtsRule(), { on: true, unit: 'tournament', mode: 'rank' });
+  }
   return t;
 }
 /* 造一站：两个阶段（每个阶段 4 人单败） */
@@ -277,8 +280,8 @@ sec('C. 赛季计分方案：一套 vs 逐阶段');
 /* ================= D. 老赛季兼容 ================= */
 sec('D. 老赛季兼容');
 {
-  const t1 = makeStop(['A', 'B', 'C', 'D'], { name: '第 1 站', createdAt: '2026-01-01 10:00' });
-  const t2 = makeStop(['C', 'D', 'A', 'B'], { name: '第 2 站', createdAt: '2026-02-01 10:00' });
+  const t1 = makeStop(['A', 'B', 'C', 'D'], { name: '第 1 站', createdAt: '2026-01-01 10:00', pts: true });
+  const t2 = makeStop(['C', 'D', 'A', 'B'], { name: '第 2 站', createdAt: '2026-02-01 10:00', pts: true });
 
   // 只有「叠加方式」覆盖的老存档
   const old = {
@@ -293,10 +296,24 @@ sec('D. 老赛季兼容');
   };
   old.rule.overrides['t:' + t2.id] = { stack: false };
   S.normalizeSeason(old);
-  ok('D1 老存档（只覆盖叠加）不会因为新增 plan 而改变口径', E.seasonPlan(old) === 'single', old.rule.plan);
+  // v2.5：没点过方案按钮、分值也是出厂默认 → 自动回到「各站自己的积分」
+  ok('D1 老存档（只覆盖叠加）自动改判为「各站自己的积分」', E.seasonPlan(old) === 'site', old.rule.plan);
   const tab = E.seasonTable(old, [t1, t2]);
   const get = function (n) { return (tab.rows.filter(function (r) { return r.name === n; })[0] || {}).total; };
-  ok('D2 第 2 站不叠加仍然生效（C 只剩本站 100）', get('C') === 100, get('C'));
+  const siteA2 = (E.tournamentPoints(t2).rows.filter(function (r) { return r.name === 'A'; })[0] || {}).total;
+  const siteA1 = (E.tournamentPoints(t1).rows.filter(function (r) { return r.name === 'A'; })[0] || {}).total;
+  ok('D2 各站按自己的积分榜算（A 第 1 站第 1 = 100）', siteA1 === 100, siteA1);
+  ok('D2b 第 2 站不叠加仍然生效（A 只剩本站的分）', get('A') === siteA2, [get('A'), siteA2]);
+  ok('D2c 有参与的其他人也被重置（C 只剩本站 100）', get('C') === 100, get('C'));
+
+  // 叠加口径下：两站分数相加
+  const oldS = JSON.parse(JSON.stringify(old));
+  oldS.id = 'se_old_stack';
+  delete oldS.rule.overrides['t:' + t2.id];
+  S.normalizeSeason(oldS);
+  const tabS = E.seasonTable(oldS, [t1, t2]);
+  const totalS = function (n) { return (tabS.rows.filter(function (r) { return r.name === n; })[0] || {}).total; };
+  ok('D2d 叠加时两站分数相加（A = 100 + 本站）', totalS('A') === siteA1 + siteA2, totalS('A'));
 
   // 有阶段级计分规则的老存档 → 自动识别为逐阶段
   const old2 = {
@@ -326,6 +343,7 @@ sec('E. 新建赛季默认值');
   const se2 = M.defaultSeason('新2');
   se2.rule.source = 'season';
   se2.rule.plan = 'stage';
+  se2.rule.planLock = true;           // 显式选过方案
   se2.rule.unit = 'tournament';       // 故意写错，normalize 应纠正
   S.normalizeSeason(se2);
   ok('E4 逐阶段方案强制按阶段分单元', se2.rule.unit === 'stage', se2.rule.unit);

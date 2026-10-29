@@ -4,6 +4,81 @@
 
 ---
 
+## [v2.5.0] — 2026-10-29
+
+> 修好「赛事归入赛季后自己的积分规则不生效、且没有改动入口」；导出彻底摆脱打印机并全面支持一整张 JPG；
+> 淘汰赛阶段的导出改成对阵图。
+
+### 🐞 修复
+
+**1. 赛季锁定在「原有积分规则」，各站 `ptsRule` 完全没被读取**
+
+复现条件：赛事归入赛季后，积分榜永远是 100 / 80 / 65 / 55，改赛事自己的积分榜毫无反应。
+
+同一批成绩、三种口径实测：
+
+| 口径 | A | B | C | D |
+|---|---|---|---|---|
+| 赛事自己的规则（每胜 7） | 14 | 7 | 0 | 0 |
+| 赛季「统一一套分值」（修复前实际表现） | 100 | 80 | 65 | 55 |
+| 切到「各站自己的积分」 | 14 | 7 | 0 | 0 ✅ |
+
+两层根因：
+
+- **迁移判据错**：老存档没有 `source` 时被硬写成 `source='season'`，`plan` 只能推成 `single`，
+  于是赛季改用自己的分值，各站规则从未参与计算；
+- **没有编辑入口**：「各站自己的积分」下每站只有一行摘要 + 叠加下拉，赛季页上无法跳到该站去改规则。
+
+修复：
+
+- `season.rule` 新增 **`planLock`**：只有用户在界面上主动点过方案按钮才置 `true`；
+  没有它 = 从没选过 → `S.normalizeSeason` 一律回到 `site`（即「各站自己的积分」，`source='tournament'`）；
+- 新增 `M.seasonRuleIsDefault(rule, d)` 识别「出厂默认值」（含老版本 4 档 100/80/65/55 + step 5 / floor 5 的档位），
+  避免把「没改过分值」误判成「用户改过」；
+- 「各站自己的积分」面板列出**每一站一行**：该站当前分值摘要 + 叠加下拉 + **「改规则」**按钮
+  （未启用积分榜时显示「启用并设置」，会顺手勾上启用），点击即跳到该赛事的「赛事设置 → 赛事积分榜」；
+- 跳转后页面顶部有**钉住的「← 返回赛季」**提示条，`#ptsCard` 会平滑滚入视野并闪一下；
+  返回时自动展开「积分规则」面板，积分榜即时重算；
+- **兜底**：所有站点都没启用积分榜导致榜单为空时，`E.seasonTable` 退回赛季自己那套计算并给出提示
+  （`siteFallback`），只要有任何一站启用就立刻回到各站口径。
+
+### ✨ 新增 / 重构
+
+**2. 导出不再使用打印机**
+
+- 新增 `js/grab.js`：把 HTML 渲染成图片（收集 `cssRules` → 屏外测量尺寸 → XHTML wrap
+  → `XMLSerializer` → SVG `foreignObject` → `Image` → `Canvas(2x)` → `toDataURL('image/jpeg', 0.92)`）；
+  样式表用 DOM 建 `<style>` 再 `textContent` 注入（用字符串拼 CDATA 会被 HTML 解析器当正文，整张样式表失效）；
+- 新增 `js/pdfgen.js`：手写 PDF 组装（A4 595.28×841.89pt、`/DCTDecode` 直接嵌 JPEG 字节、真实 xref / startxref），
+  超长内容按 A4 比例自动切页；
+- `X.savePDF` 三端统一走 `grab + pdfgen + saveBinary`（不再调用 `window.print()`，也不再调用系统 `printToPDF`），
+  桌面 / 安卓 / 浏览器的 PDF 与 JPG 长得完全一样；顺带删掉了所有「打印」动作（`printRound` / `printSelRound` /
+  `printSelStanding` / `printFull` / `printMerged` / `seasonPrint` 等）与 `X.printHTML`；
+- 新增 `X.saveImage(html, filename, cb)`：一键出 JPG（整张长图，带内边距，不切页）；
+- **每种导出都加了 JPG**：对阵 JPG、排名 JPG、完整报告 JPG、合并对阵 JPG、赛季积分榜 JPG；
+- 原生保存：Electron 新增 `ipcMain.handle('tms:saveBinary')` + `tmsNative.saveBinary`；
+  安卓新增 `@JavascriptInterface saveBase64()`（`Base64.decode` → `ACTION_CREATE_DOCUMENT` → `openOutputStream(uri,"w")`）；
+  浏览器用 `Blob + Uint8Array`；统一入口 `U.saveBinary(filename, base64, mime, cb)`。
+
+**3. 淘汰赛阶段导出对阵图**
+
+- 导出页「排名」卡片在淘汰赛阶段改名为 **「淘汰赛对阵图」**，按钮变成「导出对阵图 PDF / JPG」+「导出名次 CSV」；
+- 图片 / PDF 内容 = 标题 + 赛制 + 完整对阵树（含胜者组 / 败者组 / 总决赛分区、下一场去向）+ 底部名次小结；
+- 完整报告按阶段分流：淘汰赛阶段画对阵图，其余阶段仍出排名表。
+
+### 🎨 界面
+
+- 手机档 KPI 在 ≤560px 改为 2×2，避免「各站自定」被挤成两行；
+- 「← 返回赛季」提示条 `position: sticky` 钉在顶栏下方，滚动时始终可见。
+
+### 🧪 测试
+
+- 新增 `tools/test_v33.js`（27 项）：迁移判据、`planLock`、三种方案保留、兜底、手写 PDF 结构（%PDF / %%EOF / DCTDecode / xref 偏移 / base64 往返）；
+- 新增 `tools/smoke_v33.js`（30 项）+ `tools/build_v33_scene.js`：赛季各站口径、改规则跳转、返回、JPG/PDF 导出、淘汰赛对阵图、手机档；
+- 回归：引擎 24 套全绿；界面 25 套全绿（`test_v32` / `test_v25` / `smoke_v24` / `smoke_v21` 按新口径调整断言）。
+
+---
+
 ## [v2.4.0] — 2026-10-28
 
 > 赛季积分设置重做（三选一，不再有「默认值 + 覆盖」两层）；修好「逐阶段改不动分值」；修掉提前晋级 / 淘汰后的异常轮空。

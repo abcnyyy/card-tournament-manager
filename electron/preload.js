@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('tmsNative', {
       filename: filename, content: content, mime: mime
     });
   },
+  saveBinary: function (filename, base64, mime) {
+    return ipcRenderer.invoke('tms:saveBinary', {
+      filename: filename, base64: base64, mime: mime
+    });
+  },
   savePDF: function (filename) {
     return ipcRenderer.invoke('tms:savePDF', { filename: filename });
   },

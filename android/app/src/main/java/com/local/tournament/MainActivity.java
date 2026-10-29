@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
     private static final int REQ_SAVE = 4701;
 
     private String pendingContent = null;
+    private byte[] pendingBinary = null;
     private String pendingMime = "text/plain";
     private String pendingName = "导出.txt";
 
@@ -46,15 +47,27 @@ public class MainActivity extends BridgeActivity {
         try {
             if (resultCode == RESULT_OK && data != null && data.getData() != null) {
                 Uri uri = data.getData();
-                OutputStream os = getContentResolver().openOutputStream(uri, "wt");
-                if (os != null) {
-                    String body = pendingContent == null ? "" : pendingContent;
-                    os.write(body.getBytes(StandardCharsets.UTF_8));
-                    os.flush();
-                    os.close();
-                    toast("已保存：" + pendingName);
+                if (pendingBinary != null) {
+                    OutputStream ob = getContentResolver().openOutputStream(uri, "w");
+                    if (ob != null) {
+                        ob.write(pendingBinary);
+                        ob.flush();
+                        ob.close();
+                        toast("已保存：" + pendingName);
+                    } else {
+                        toast("保存失败：无法写入该位置");
+                    }
                 } else {
-                    toast("保存失败：无法写入该位置");
+                    OutputStream os = getContentResolver().openOutputStream(uri, "wt");
+                    if (os != null) {
+                        String body = pendingContent == null ? "" : pendingContent;
+                        os.write(body.getBytes(StandardCharsets.UTF_8));
+                        os.flush();
+                        os.close();
+                        toast("已保存：" + pendingName);
+                    } else {
+                        toast("保存失败：无法写入该位置");
+                    }
                 }
             } else {
                 toast("已取消导出");
@@ -63,6 +76,7 @@ public class MainActivity extends BridgeActivity {
             toast("保存失败：" + e.getMessage());
         } finally {
             pendingContent = null;
+            pendingBinary = null;
         }
     }
 
@@ -131,6 +145,42 @@ public class MainActivity extends BridgeActivity {
                         pm.print(job, adapter, attrs);
                     } catch (Exception e) {
                         toast("打开打印失败：" + e.getMessage());
+                    }
+                }
+            });
+        }
+
+        /**
+         * 保存二进制文件（JPG / PDF）：页面传 base64，这里解码后写入用户选的位置。
+         * 全程不经过系统打印面板 —— 点一下就出文件。
+         */
+        @JavascriptInterface
+        public void saveBase64(final String filename, final String base64, final String mime) {
+            pendingName = (filename == null || filename.trim().isEmpty()) ? "导出.jpg" : filename.trim();
+            pendingMime = (mime == null || mime.trim().isEmpty()) ? "application/octet-stream" : mime;
+            try {
+                pendingBinary = android.util.Base64.decode(base64 == null ? "" : base64,
+                        android.util.Base64.DEFAULT);
+            } catch (Exception e) {
+                pendingBinary = null;
+                toast("图片编码失败：" + e.getMessage());
+                return;
+            }
+            pendingContent = null;
+
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        String base = pendingMime.split(";")[0].trim();
+                        if (base.isEmpty()) base = "application/octet-stream";
+                        Intent it = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                        it.addCategory(Intent.CATEGORY_OPENABLE);
+                        it.setType(base);
+                        it.putExtra(Intent.EXTRA_TITLE, pendingName);
+                        startActivityForResult(it, REQ_SAVE);
+                    } catch (Exception e) {
+                        toast("打开保存窗口失败：" + e.getMessage());
                     }
                 }
             });

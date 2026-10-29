@@ -147,6 +147,44 @@
     return util.saveFile(filename, content, mime);
   };
 
+  /**
+   * 保存二进制文件（JPG / PDF）：content 是 base64 字符串
+   *   electron → 主进程写 Buffer；android → 原生桥解码后写入；浏览器 → Blob 下载
+   */
+  util.saveBinary = function (filename, base64, mime, cb) {
+    var kind = util.nativeKind();
+    mime = mime || 'application/octet-stream';
+    try {
+      if (kind === 'electron' && global.tmsNative && typeof global.tmsNative.saveBinary === 'function') {
+        global.tmsNative.saveBinary(filename, base64, mime).then(function (r) {
+          if (cb) cb(r || { ok: true });
+        }, function (e) {
+          if (cb) cb({ ok: false, msg: '保存失败：' + (e && e.message ? e.message : e) });
+        });
+        return true;
+      }
+      if (kind === 'android' && global.TmsNative && typeof global.TmsNative.saveBase64 === 'function') {
+        global.TmsNative.saveBase64(filename, base64, mime);
+        if (cb) cb({ ok: true, msg: '已打开「保存到」选择器，选好位置即可' });
+        return true;
+      }
+      var bin = global.atob(base64);
+      var u8 = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      var blob = new Blob([u8], { type: mime });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 400);
+      if (cb) cb({ ok: true, msg: '已开始下载：' + filename });
+      return true;
+    } catch (e) {
+      if (cb) cb({ ok: false, msg: '导出失败：' + e.message });
+      return false;
+    }
+  };
+
   TMS.util = util;
 
   /* ---------------- 常量与默认值 ---------------- */
@@ -726,6 +764,10 @@
       //   'stage'  = 每个计分单元（每个阶段）各自一套计分方法，互不影响
       //   仅 source='season' 时生效；source='tournament' 时恒按各站自己的积分加总
       plan: 'single',
+      // v2.5：用户是否在界面上「主动选过」计分方案。
+      //   没有这个标记 = 从没选过（老存档 / 从 v2.4 迁移过来的），一律按各站自己的积分算；
+      //   点过方案按钮才会置 true，之后不再被自动改口径。
+      planLock: false,
       // unit: tournament = 每站赛事算一次分；stage = 赛事内每个阶段各算一次
       unit: 'tournament',
       stack: true,              // 是否与之前的计分单元累加
@@ -754,6 +796,50 @@
       updatedAt: util.now(),
       rule: M.defaultSeasonRule()
     };
+  };
+
+  /**
+   * 赛季规则是不是「出厂默认值」（用户从没改过分值）
+   * 用来识别 v2.4 迁移时被动写进 plan='single' 的赛季 —— 这种要放回「各站自己的积分」。
+   */
+  M.seasonRuleIsDefault = function (rule, d) {
+    if (!rule) return true;
+    d = d || M.defaultSeasonRule();
+    if ((rule.mode || 'rank') !== d.mode) return false;
+    if ((rule.unit || 'tournament') !== d.unit) return false;
+    if (rule.stack === false) return false;
+    if ((rule.resetScope || 'participants') !== 'participants') return false;
+    if (rule.includeRunning) return false;
+    var rk = rule.rank || {}, dk = d.rank || {};
+    var a = rk.tiers || [], b = dk.tiers || [];
+    var sameTiers = function (x, y) {
+      if (x.length !== y.length) return false;
+      for (var i = 0; i < x.length; i++) {
+        if (parseInt(x[i].from, 10) !== parseInt(y[i].from, 10)) return false;
+        if (parseInt(x[i].to, 10) !== parseInt(y[i].to, 10)) return false;
+        if (parseFloat(x[i].pts) !== parseFloat(y[i].pts)) return false;
+        if (!!x[i].adv !== !!y[i].adv) return false;
+      }
+      return true;
+    };
+    var tiersOk;
+    if (sameTiers(a, b) && parseFloat(rk.step) === parseFloat(dk.step) && parseFloat(rk.floor) === parseFloat(dk.floor)) {
+      tiersOk = true;
+    } else {
+      // 老版本（v1.14 之前）的出厂档位：4 档 100/80/65/55，每降 1 名扣 5、最低 5
+      var legacy = [
+        { from: 1, to: 1, pts: 100, adv: false }, { from: 2, to: 2, pts: 80, adv: false },
+        { from: 3, to: 3, pts: 65, adv: false }, { from: 4, to: 4, pts: 55, adv: false }
+      ];
+      tiersOk = sameTiers(a, legacy) && parseFloat(rk.step) === 5 && parseFloat(rk.floor) === 5;
+    }
+    if (!tiersOk) return false;
+    var w = rule.win || {}, dw = d.win || {};
+    var keys = ['perWin', 'perDraw', 'perLoss', 'base'];
+    for (var j = 0; j < keys.length; j++) {
+      if (parseFloat(w[keys[j]]) !== parseFloat(dw[keys[j]])) return false;
+    }
+    return true;
   };
 
   S.normalizeSeason = function (s) {
@@ -796,16 +882,30 @@
     if (!(parseFloat(s.rule.rank.step) >= 0)) s.rule.rank.step = d.rank.step;
     if (!(parseFloat(s.rule.rank.floor) >= 0)) s.rule.rank.floor = d.rank.floor;
     s.rule.source = (['tournament', 'season'].indexOf(rawSource) >= 0) ? rawSource : 'season';
-    // plan（v2.4）：显式存过就照存；老赛季没有这个字段时按「有没有阶段级计分规则」推断
-    if (rawPlan === 'stage' || rawPlan === 'single') {
-      s.rule.plan = rawPlan;
+    // plan（v2.4 引入，v2.5 修正判据）
+    //   ★ 老存档 / v2.4 迁移过来的赛季没有 planLock，默认回到「各站自己的积分」：
+    //     这样赛事自己的积分榜才真正生效（以前会被强制判成 single，把各站规则整个忽略）。
+    //   ★ 只有这几种情况才保留「赛季自己定分值」：
+    //       - 用户主动点过方案按钮（planLock === true）
+    //       - plan='stage' 且确实配了逐阶段规则（真在逐阶段设分值）
+    //       - plan='single' 且分值被改过（不是出厂默认值）
+    var hasUnitRule = Object.keys(s.rule.overrides).some(function (k) {
+      var o = s.rule.overrides[k] || {};
+      return ['rank', 'win'].indexOf(o.mode) >= 0 || o.rank || o.win;
+    });
+    if (s.rule.planLock === true) {
+      s.rule.plan = (rawPlan === 'stage') ? 'stage' : (rawPlan === 'single' ? 'single' : 'site');
+    } else if (rawPlan === 'stage' && hasUnitRule) {
+      s.rule.plan = 'stage';   // 真的在逐阶段设分值，动它等于毁掉配置
+    } else if (rawPlan === 'single' && !M.seasonRuleIsDefault(s.rule, d)) {
+      s.rule.plan = 'single';  // 分值被改过 = 用户确实在用统一计分
+    } else if (rawPlan === '' && hasUnitRule) {
+      s.rule.plan = 'stage';   // v2.3 老存档：以前只配过逐单元规则，按逐阶段接住
     } else {
-      var hasUnitRule = Object.keys(s.rule.overrides).some(function (k) {
-        var o = s.rule.overrides[k] || {};
-        return ['rank', 'win'].indexOf(o.mode) >= 0;
-      });
-      s.rule.plan = (s.rule.unit === 'stage' && hasUnitRule) ? 'stage' : 'single';
+      s.rule.plan = 'site';
     }
+    // site 必须走 source='tournament'（E.seasonPlan 的唯一判据），两者保持一致
+    s.rule.source = (s.rule.plan === 'site') ? 'tournament' : 'season';
     if (s.rule.plan === 'stage') s.rule.unit = 'stage';
     return s;
   };
