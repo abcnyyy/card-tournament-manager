@@ -50,7 +50,10 @@
 
   /* 表单行：标签 + 控件 + 说明 */
   function fld(label, control, hint) {
-    return '<div class="fld">' +
+    // 勾选项的说明往往很长，行会被撑高；标一个类让勾选框和标题顶部对齐，
+    // 否则勾选框会飘到上一行的末尾，看着像属于别的选项
+    var isCb = control.indexOf('type="checkbox"') >= 0;
+    return '<div class="fld' + (isCb ? ' fld-cb' : '') + '">' +
       '<label>' + label + '</label>' +
       '<div class="fld-ctl">' + control +
       (hint ? '<div class="hint">' + hint + '</div>' : '') +
@@ -1300,13 +1303,19 @@
       h += fld('继承上一阶段积分', inp('checkbox', p + '.inherit.enabled', !!(s.inherit && s.inherit.enabled)));
       if (s.inherit && s.inherit.enabled) {
         h += fld('继承比例（%）', inp('number', p + '.inherit.ratio', s.inherit.ratio, ' min="0" max="100"'),
-          '100 = 全额带入下一阶段；50 = 带入一半。积分与小分都用这一个比例。');
+          '100 = 全额带入；50 = 带入一半。这个比例只管<b>积分</b>与<b>小分</b>。');
+        h += fld('同时继承战绩',
+          inp('checkbox', p + '.inherit.stats', s.inherit.stats !== false),
+          '默认开启。上一阶段的 <b>场次 / 胜 / 平 / 负 / 轮空 / 赢局 / 输局</b> 按<b>原值</b>带进本阶段，'
+          + '与本阶段成绩相加：排名页的「场次 / 胜 / 平 / 负 / 赢局-输局」就是两阶段合计，'
+          + '破同时比出来的「胜场数」「赢局数」也一样。<br>'
+          + '关掉 = 战绩重新从 0 开始（排名只看本阶段打出来的胜负）。');
         h += fld('同时继承小分',
           inp('checkbox', p + '.inherit.tie', !!s.inherit.tie),
-          '勾选后，上一阶段的 <b>全部小分</b> 都按同一比例带入本阶段：'
-          + '累计小分、净小分、赢局 / 输局（净胜局）、对手分、累进分。'
-          + '本阶段打出的成绩继续往上累加，破同分时直接生效（排名页不再单独标注）。<br>'
-          + '不勾选 = 只带积分（小分从 0 重新计算）。');
+          '勾选后，上一阶段的 <b>小分</b> 也按上面的比例带入本阶段：'
+          + '累计小分、净小分、对手分、累进分。'
+          + '本阶段打出的小分继续往上累加，破同分时直接生效（排名页不再单独标注）。<br>'
+          + '不勾选 = 小分从 0 重新计算（战绩与局数照旧累计）。');
       }
     }
 
@@ -2762,16 +2771,22 @@
       else if (!s.active) { label = s.dropReason || '退赛'; }
       // 轮空在对阵图里不作为比赛出现，这里也把轮空从「场次 / 胜」里扣掉，
       // 否则会出现「只打了一场却显示 2 胜」
-      var byeCnt = s.byes || 0;
-      var playedN = Math.max(0, (s.matches || 0) - byeCnt);
-      var winN = Math.max(0, (s.wins || 0) - byeCnt);
+      // v2.6：这张表是本阶段的对阵结果，只统计本阶段（继承来的战绩不混进来）
+      var oM = (s.ownMatches !== undefined) ? s.ownMatches : s.matches;
+      var oW = (s.ownWins !== undefined) ? s.ownWins : s.wins;
+      var oL = (s.ownLosses !== undefined) ? s.ownLosses : s.losses;
+      var oGW = (s.ownGamesWon !== undefined) ? s.ownGamesWon : s.gamesWon;
+      var oGL = (s.ownGamesLost !== undefined) ? s.ownGamesLost : s.gamesLost;
+      var byeCnt = s.ownByes || s.byes || 0;
+      var playedN = Math.max(0, (oM || 0) - byeCnt);
+      var winN = Math.max(0, (oW || 0) - byeCnt);
       h += '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' +
         '<td class="num"><b>' + (i + 1) + '</b></td>' +
         '<td><b>' + esc(s.name) + '</b></td>' +
         '<td class="num">' + playedN + '</td>' +
         '<td class="num">' + winN + '</td>' +
-        '<td class="num">' + s.losses + '</td>' +
-        '<td class="num">' + s.gamesWon + '-' + s.gamesLost + '</td>' +
+        '<td class="num">' + oL + '</td>' +
+        '<td class="num">' + oGW + '-' + oGL + '</td>' +
         '<td>' + esc(label) + '</td>' +
         '</tr>';
     });
@@ -3032,8 +3047,13 @@
     if (showCarry && si > 0) {
       var rt = parseFloat(stage.inherit.ratio);
       if (!(rt >= 0)) rt = 0;
-      // 小分继承静默生效，排名页不再提示（只说明积分继承比例）
-      inhNote = '<div class="hint" style="margin-bottom:8px">本阶段已继承上一阶段<b>积分 ' + U.fmt(rt) + '%</b>。</div>';
+      var carryTxt = '<b>积分 ' + U.fmt(rt) + '%</b>';
+      // 战绩继承（v2.6）：场次 / 胜负 / 局数默认原值累计；小分是否继承静默生效，不再单独提示
+      if (stage.inherit.stats !== false) {
+        carryTxt += '，<b>场次 / 胜 / 平 / 负 / 赢局-输局</b> 按原值累计（含上一阶段）';
+      }
+      if (!stage.inherit.tie) carryTxt += '；小分从 0 起算';
+      inhNote = '<div class="hint" style="margin-bottom:8px">本阶段已继承上一阶段' + carryTxt + '。</div>';
     }
     // 团体赛：大比分单位是「场」，个人小局只算小分（v2.0）
     var teamOn2 = E.teamOn(t);

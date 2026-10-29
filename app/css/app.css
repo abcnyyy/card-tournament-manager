@@ -201,6 +201,9 @@ a { color: var(--brand); }
 .spacer { flex: 1; }
 
 .fld { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+/* 勾选项：说明长时会撑高整行，勾选框与标题按顶部对齐，避免「勾选框飘到上一行」 */
+.fld.fld-cb { align-items: flex-start; }
+.fld.fld-cb > label { line-height: 16px; padding-top: 1px; }
 .fld > label { flex: 0 0 128px; line-height: 20px; }
 .fld-ctl { flex: 1 1 200px; min-width: 150px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* 说明文字独占一行，避免和控件挤在一条线上 */

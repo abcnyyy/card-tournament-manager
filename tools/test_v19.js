@@ -276,13 +276,16 @@ ok('上阶段统计含积分与小分', fOff.points > 0 && fOff.gamesWon > 0 && 
 const off = s2(tOff, idOff), on = s2(tOn, idOn), full = s2(tFull, idFull);
 
 ok('不继承小分：累计小分从 0 开始', off.cumulative === 0, off.cumulative);
-ok('不继承小分：赢局从 0 开始', off.gamesWon === 0 && off.gamesLost === 0, [off.gamesWon, off.gamesLost]);
+// v2.6：赢局 / 输局属于「战绩」，跟着积分一起继承，不再受 tie 开关控制
+ok('不继承小分：赢局仍随战绩继承（v2.6）', off.gamesWon === fOff.gamesWon && off.gamesLost === fOff.gamesLost,
+  [off.gamesWon, off.gamesLost, fOff.gamesWon, fOff.gamesLost]);
 ok('不继承小分：对手分从 0 开始（本阶段未打）', off.buchholz === 0, off.buchholz);
 ok('积分照旧按 50% 带入', Math.abs(off.carry - fOff.points * 0.5) < 1e-9, [off.carry, fOff.points]);
 
 ok('继承小分 50%：累计小分 = 上阶段 × 50%', Math.abs(on.cumulative - fOn.cumulative * 0.5) < 1e-9, [on.cumulative, fOn.cumulative]);
-ok('继承小分 50%：赢局 = 上阶段 × 50%', Math.abs(on.gamesWon - fOn.gamesWon * 0.5) < 1e-9, [on.gamesWon, fOn.gamesWon]);
-ok('继承小分 50%：输局 = 上阶段 × 50%', Math.abs(on.gamesLost - fOn.gamesLost * 0.5) < 1e-9, [on.gamesLost, fOn.gamesLost]);
+// v2.6：比例只折算「小分」，赢局 / 输局按原值累计（不出现半个胜局）
+ok('继承小分 50%：赢局按原值带（v2.6）', on.gamesWon === fOn.gamesWon, [on.gamesWon, fOn.gamesWon]);
+ok('继承小分 50%：输局按原值带（v2.6）', on.gamesLost === fOn.gamesLost, [on.gamesLost, fOn.gamesLost]);
 ok('继承小分 50%：对手分 = 上阶段 × 50%', Math.abs(on.buchholz - fOn.buchholz * 0.5) < 1e-9, [on.buchholz, fOn.buchholz]);
 ok('净胜局随继承一起带过来', on.gamesDiff === on.gamesWon - on.gamesLost, on.gamesDiff);
 ok('积分仍等于 50%（小分不影响积分）',
