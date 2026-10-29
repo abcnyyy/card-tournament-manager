@@ -312,84 +312,49 @@
     return U.saveFile(filename || '导出.csv', csv, 'text/csv;charset=utf-8', cb);
   };
 
-  /* ============ 打印 / 导出 PDF ============ */
-  function printAreaWith(html) {
-    var area = document.getElementById('printArea');
-    if (!area) {
-      area = document.createElement('div');
-      area.id = 'printArea';
-      document.body.appendChild(area);
-    }
-    area.innerHTML = html;
-    return area;
-  }
+  /* ============ 导出 PDF / JPG（v2.5：完全不用打印服务） ============ */
 
-  X.printHTML = function (html, cb) {
-    var kind = U.nativeKind();
-    var area = printAreaWith(html);
-    document.body.classList.add('printing');
-    function done(r) {
-      document.body.classList.remove('printing');
-      area.innerHTML = '';
-      if (cb) cb(r || { ok: true });
+  /**
+   * 导出 PDF（v2.5：完全不用打印服务）
+   *   页面内容 → 按 A4 比例切片成 JPG → 手写 PDF 组装（DCTDecode 直嵌）→ 保存文件
+   *   opts.shrink = true 时图片宽度按内容自适应（对阵图这类窄内容不留大片空白）
+   */
+  X.savePDF = function (html, filename, cb, opts) {
+    function done(r) { if (cb) cb(r || { ok: true }); }
+    if (!TMS.grab || !TMS.pdf) {
+      done({ ok: false, msg: '当前环境不支持导出 PDF' });
+      return false;
     }
-    // 手机版：交系统打印面板（可选打印机或「另存为 PDF」）
-    if (kind === 'android' && global.TmsNative && typeof global.TmsNative.printPage === 'function') {
-      setTimeout(function () {
-        try { global.TmsNative.printPage(); }
-        catch (e) { /* 忽略 */ }
-        setTimeout(function () { done({ ok: true, msg: '已打开系统打印面板' }); }, 2500);
-      }, 120);
-      return true;
-    }
-    setTimeout(function () {
-      try {
-        window.print();
-        done({ ok: true, msg: '已打开打印对话框' });
-      } catch (e) {
-        done({ ok: false, msg: '打印失败：' + (e && e.message ? e.message : e) });
-      }
-    }, 80);
+    // v2.5：三端一律「自己排图 + 自己拼 PDF」，不经过任何打印服务，
+    // 也不再调用系统 printToPDF —— 这样桌面版 / 安卓 / 浏览器的 PDF 与 JPG 长得完全一样
+    TMS.grab.jpgPagesFromHTML(html, {
+      width: (opts && opts.width) || 1180,
+      shrink: !!(opts && opts.shrink)
+    }).then(function (pages) {
+      var pdf = TMS.pdf.fromJPEGs(pages);
+      var b64 = TMS.pdf.bytesToBase64(pdf.bytes);
+      U.saveBinary(filename || '导出.pdf', b64, 'application/pdf', done);
+    }, function (e) {
+      done({ ok: false, msg: '生成 PDF 失败：' + (e && e.message ? e.message : e) });
+    });
     return true;
   };
 
   /**
-   * 导出 PDF：
-   *   桌面版 → 主进程 printToPDF 直接生成 PDF 文件（弹保存框，不用打印机）
-   *   手机版 → 系统打印面板（可选「另存为 PDF」）
-   *   浏览器 → 系统打印对话框（选「另存为 PDF」）
+   * 导出一张完整 JPG（长图，适合直接发群 / 发动态）
    */
-  X.savePDF = function (html, filename, cb) {
-    var kind = U.nativeKind();
-    var area = printAreaWith(html);
-    document.body.classList.add('printing');
-    function done(r) {
-      document.body.classList.remove('printing');
-      area.innerHTML = '';
-      if (cb) cb(r || { ok: true });
-    }
-    if (kind === 'electron' && global.tmsNative && typeof global.tmsNative.savePDF === 'function') {
-      setTimeout(function () {
-        global.tmsNative.savePDF(filename || '导出.pdf').then(done, function (e) {
-          done({ ok: false, msg: '导出 PDF 失败：' + (e && e.message ? e.message : e) });
-        });
-      }, 120);
-      return true;
-    }
-    if (kind === 'android' && global.TmsNative && typeof global.TmsNative.printPage === 'function') {
-      setTimeout(function () {
-        try { global.TmsNative.printPage(); }
-        catch (e) { /* 忽略 */ }
-        setTimeout(done, 4000);
-      }, 120);
-      return true;
-    }
-    // 浏览器 / 不支持原生打印的 WebView
-    setTimeout(function () {
-      try { window.print(); }
-      catch (e) { alert('打印失败：' + e.message); }
-      done({ ok: true, msg: '已打开打印对话框（选「另存为 PDF」可保存文件）' });
-    }, 60);
+  X.saveImage = function (html, filename, cb, opts) {
+    function done(r) { if (cb) cb(r || { ok: true }); }
+    if (!TMS.grab) { done({ ok: false, msg: '当前环境不支持导出图片' }); return false; }
+    TMS.grab.jpegFromHTML(html, {
+      width: (opts && opts.width) || 1180,
+      shrink: !!(opts && opts.shrink)
+    }).then(function (r) {
+      var b64 = String(r.dataURL || '').split('base64,')[1] || '';
+      U.saveBinary(filename || '导出.jpg', b64, 'image/jpeg', done);
+    }, function (e) {
+      done({ ok: false, msg: '生成图片失败：' + (e && e.message ? e.message : e) });
+    });
     return true;
   };
 

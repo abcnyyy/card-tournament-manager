@@ -34,6 +34,9 @@
   var ptsStageOpen = -1;
   var exSel = { stage: 0, round: -1, group: -1 };
   var pendingFileAction = null;
+  // v2.5：从赛季页「改这一站的积分规则」跳过来时，记住赛季 id，好在赛事设置顶部给「返回赛季」
+  var seasonBack = '';
+  var scrollTarget = '';      // 渲染后要滚到并高亮的元素 id（一次性）
 
   function esc(s) { return U.esc(s); }
 
@@ -701,6 +704,16 @@
     if (!T) return '';
     var f = T.format, sc = T.scoring, h = '';
 
+    /* --- 从赛季页跳过来：给一条返回路径 --- */
+    if (seasonBack) {
+      var seB = S.getSeason(seasonBack);
+      h += '<div class="notice season-back">' +
+        '<button class="btn sm" data-act="backToSeason">← 返回赛季</button>' +
+        '<span>正在改「' + esc(T.name) + '」自己的积分规则' +
+        (seB ? '（赛季：' + esc(seB.name) + '）' : '') +
+        '。改完点左上角返回，赛季积分榜会自动重算。</span></div>';
+    }
+
     /* --- 基本信息 --- */
     h += card('基本信息',
       fld('赛事名称', inp('text', 'name', T.name, ' style="width:320px"')) +
@@ -836,7 +849,7 @@
     h += card('排名依据（Tiebreaker）', tb);
 
     /* --- 赛事积分榜体系 --- */
-    h += ptsCardHTML();
+    h += '<div id="ptsCard">' + ptsCardHTML() + '</div>';
 
     /* --- 轮空规则 --- */
     h += card('轮空规则（人数为奇数时）',
@@ -1888,7 +1901,7 @@
         finBtn +
         '<button class="btn" data-act="finishStage"' + (lastRd ? '' : ' disabled') + '>结束本阶段并晋级</button>' +
         '<button class="btn" data-act="rollback"' + (T.history.length ? '' : ' disabled') + '>回退一步</button>' +
-        '<button class="btn" data-act="printRound">打印本轮</button>' +
+        '<button class="btn" data-act="imgRound">导出本轮 JPG</button>' +
         (E.tmCfg(T).enabled
           ? '<button class="btn" data-act="tmStartAll">全轮开始计时</button>' +
             '<button class="btn" data-act="tmPauseAll">全轮暂停</button>'
@@ -1905,7 +1918,7 @@
       h += '<div class="row noprint" style="margin-bottom:12px">' +
         '<button class="btn primary" data-act="latestStage">回到当前阶段</button>' +
         '<button class="btn" data-act="gotoMerged">查看合并对阵图</button>' +
-        '<button class="btn" data-act="printRound">打印本轮</button>' +
+        '<button class="btn" data-act="imgRound">导出本轮 JPG</button>' +
         '</div>';
     }
 
@@ -2626,7 +2639,9 @@
           return '<option value="' + i + '"' + (stView.groupIdx === i ? ' selected' : '') + '>' + esc(g.name) + '</option>';
       }).join('') + '</select>';
     }
-    h += '<button class="btn" data-act="printStanding">打印排名</button>';
+    h += '<button class="btn" data-act="imgStanding">' +
+      (isElimStage(stage) ? '导出对阵图 JPG' : '导出排名 JPG') + '</button>';
+    h += '<button class="btn" data-act="pdfStanding">存 PDF</button>';
     h += '</div>';
 
     /* ---- 对阵图：多个淘汰赛阶段可以合并成一张看完整路径 ---- */
@@ -2639,7 +2654,7 @@
         '<button class="btn sm' + (mergedOn ? ' primary' : '') + '" data-act="bracketMode" data-mode="merged">' +
         '合并全部 ' + elimIdx.length + ' 个阶段</button>' +
         '<button class="btn sm' + (!mergedOn ? ' primary' : '') + '" data-act="bracketMode" data-mode="stage">只看所选阶段</button>' +
-        '<button class="btn sm" data-act="printMerged">打印合并对阵图</button>' +
+        '<button class="btn sm" data-act="imgMerged">导出合并图 JPG</button>' +
         '<button class="btn sm" data-act="pdfMerged">存 PDF</button>' +
         '</div>';
     }
@@ -2913,12 +2928,13 @@
     return card('合并对阵图（' + mp.stages.length + ' 个淘汰赛阶段）', h);
   }
 
-  function bracketHTML(t, si) {
+  function bracketHTML(t, si, bare) {
     var stage = t.stages[si];
     var plan = null;
     try { plan = E.bracketPlan(t, stage); } catch (e) { plan = null; }
     if (!plan || !plan.rows || !plan.rows.length) {
-      return card('对阵图', '<div class="notice empty">还没有生成对阵</div>');
+      var empty = '<div class="notice empty">还没有生成对阵</div>';
+      return bare ? empty : card('对阵图', empty);
     }
     var total = Math.max(1, plan.totalCols || 1);
     var h = '<div class="bracket-wrap">';
@@ -2946,7 +2962,11 @@
           ' 先计 ' + (stage.gfHandicap || 1) + ' 局。';
       }
     }
-    h += '<div class="hint">读法：每一格都写清了<b>选手</b>或<b>来源</b>——'
+    // 导出图片时只留一行图例，不要把整段「读法」说明也印进图里
+    h += bare
+      ? ('<div class="hint"><span class="pw">胜 →</span> 下一场　<span class="pl">负 →</span> 淘汰' +
+        (stage.type === 'double_elim' ? '　·　' + deHint : '') + '</div>')
+      : ('<div class="hint">读法：每一格都写清了<b>选手</b>或<b>来源</b>——'
       + '灰字斜体是还没打出来的格子，例如「第 1 轮 第 2 场胜者」「胜者组第 1 轮 第 3 场败者」「败者组第 2 轮 第 1 场胜者」。'
       + '卡片顶部是场次编号，底部两行是<b>晋级路径</b>：<span class="pw">胜 →</span> 下一场在哪，<span class="pl">负 →</span> 掉到哪（「淘汰」表示没有下一场）。'
       + (stage.type === 'double_elim' ? '双败的<b>总决赛在最右边</b>，与胜者组同一行。' + deHint : '')
@@ -2954,12 +2974,39 @@
         ? '<br><b>半区互换已开启</b>：上半区胜者组的败者交叉掉进<b>下半区败者组</b>、下半区胜者组的败者掉进上半区败者组；'
           + '两个半区的败者组各自决出冠军后，先打一场<b>败者组交叉决赛</b>，胜者才进总决赛。'
         : '')
-      + '</div>';
+      + '</div>');
     var titleFmt = fmtText(E.fmtOf(t, stage));
     if (stage.type === 'double_elim' && (stage.gfUseFormat || mode === 'elevate')) {
       titleFmt += ' · 总决赛 ' + fmtText(E.gfFmtOf(t, stage, false));
     }
-    return card('对阵图（' + esc(titleFmt) + '）', h);
+    return bare ? h : card('对阵图（' + esc(titleFmt) + '）', h);
+  }
+
+  function isElimStage(st) {
+    return !!st && (st.type === 'single_elim' || st.type === 'double_elim');
+  }
+
+  // 淘汰赛导出：对阵图 + 一行名次小结（v2.5：淘汰赛不再导出排名表）
+  function elimExportHTML(si, title) {
+    var st = T.stages[si];
+    var h = '';
+    h += '<h1 style="font-size:22px;margin:0 0 4px">' + esc(title || (T.name + ' · ' + st.name + ' 对阵图')) + '</h1>';
+    h += '<div style="font-size:12px;margin-bottom:10px">赛制：' + esc(typeName(st.type)) +
+      ' · 生成时间：' + esc(U.now()) + '</div>';
+    h += bracketHTML(T, si, true);
+    var res = [];
+    try { res = E.stageResults(T, si) || []; } catch (e) { res = []; }
+    // 名次小结：只取前 4 名，带名次徽章（E.stageResults 的字段是 rank）
+    var top = res.filter(function (r) { return r && r.rank; }).slice(0, 4);
+    if (top.length) {
+      h += '<div class="elim-sum"><span class="t">名次</span>' +
+        top.map(function (r) {
+          var k = parseInt(r.rank, 10) || 0;
+          return '<span class="it"><span class="rank-badge' + (k >= 1 && k <= 3 ? ' r' + k : '') + '">' +
+            k + '</span>' + esc(r.name) + '</span>';
+        }).join('') + '</div>';
+    }
+    return h;
   }
 
   function standingsTable(t, si, gi) {
@@ -3109,35 +3156,45 @@
       : (natKind === 'android'
         ? '手机版点导出会弹出系统「保存到」，可以选手机里的任意文件夹（下载 / 文档 / 网盘）。'
         : '浏览器里会直接下载到默认下载目录。');
+    var noPrintTip = '导出直接生成文件，<b>不经过打印机</b>；JPG 是整张长图，可直接发群 / 发动态。';
 
     h += card('对阵',
       '<div class="hint" style="margin-bottom:10px">导出所选阶段的某一轮或全部轮次对阵。CSV 可直接用 Excel / WPS 打开，含大比分、逐局与胜者。</div>' +
       '<div class="row">' +
-      '<button class="btn lg" data-act="printSelRound">打印所选对阵</button>' +
       '<button class="btn lg" data-act="pdfSelRound">导出对阵 PDF</button>' +
-      '<button class="btn lg primary" data-act="csvSelRound">导出对阵 CSV</button>' +
-      '</div>'
+      '<button class="btn lg primary" data-act="imgSelRound">导出对阵 JPG</button>' +
+      '<button class="btn lg" data-act="csvSelRound">导出对阵 CSV</button>' +
+      '</div>' +
+      '<div class="hint" style="margin-top:8px">' + noPrintTip + '</div>'
     );
 
-    h += card('排名',
-      '<div class="hint" style="margin-bottom:10px">轮次选择「全部轮次」= 当前最新排名；选择某一轮 = 该轮结束后的排名快照（不含之后的比赛）。</div>' +
+    var elimSel = isElimStage(stage);
+    h += card(elimSel ? '淘汰赛对阵图' : '排名',
+      '<div class="hint" style="margin-bottom:10px">' +
+      (elimSel
+        ? '当前阶段是<b>淘汰赛</b>，导出格式为<b>对阵图</b>（含胜者组 / 败者组 / 总决赛分区与晋级路径），底部附名次小结。'
+        : '轮次选择「全部轮次」= 当前最新排名；选择某一轮 = 该轮结束后的排名快照（不含之后的比赛）。') +
+      '</div>' +
       '<div class="row">' +
-      '<button class="btn lg" data-act="printSelStanding">打印所选排名</button>' +
-      '<button class="btn lg" data-act="pdfSelStanding">导出排名 PDF</button>' +
-      '<button class="btn lg primary" data-act="csvSelStanding">导出排名 CSV</button>' +
-      '</div>'
+      '<button class="btn lg" data-act="pdfSelStanding">' + (elimSel ? '导出对阵图 PDF' : '导出排名 PDF') + '</button>' +
+      '<button class="btn lg primary" data-act="imgSelStanding">' + (elimSel ? '导出对阵图 JPG' : '导出排名 JPG') + '</button>' +
+      '<button class="btn lg" data-act="csvSelStanding">' + (elimSel ? '导出名次 CSV' : '导出排名 CSV') + '</button>' +
+      '</div>' +
+      '<div class="hint" style="margin-top:8px">' + (elimSel
+        ? '名次 CSV 仍是表格（Excel 用），图片与 PDF 才是对阵图。'
+        : noPrintTip) + '</div>'
     );
 
     h += card('整站报告与存档',
       '<div class="row">' +
-      '<button class="btn" data-act="printFull">打印最终完整报告（全阶段）</button>' +
       '<button class="btn" data-act="pdfFull">导出完整报告 PDF</button>' +
+      '<button class="btn primary" data-act="imgFull">导出完整报告 JPG</button>' +
       '<button class="btn" data-act="csvAllRounds">导出全部阶段对阵 CSV</button>' +
       '<button class="btn" data-act="saveJSON">导出 JSON 存档</button>' +
       '<button class="btn" data-act="loadT">导入 JSON 存档</button>' +
       '</div>' +
       '<div class="hint" style="margin-top:6px">' + esc(natTip) +
-      ' 打印时也可以在系统对话框里选「另存为 PDF」。</div>'
+      ' 完整报告里，淘汰赛阶段会输出<b>对阵图</b>，其余阶段输出排名表。</div>'
     );
 
     h += card('选手名单',
@@ -3257,7 +3314,7 @@
       var f = parseInt(t.from, 10) || 1, e = parseInt(t.to, 10) || f;
       return (f === e ? ('第' + f) : ('第' + f + '~' + e)) + ' ' + U.fmt(t.pts);
     });
-    if (ts.length > 3) parts.push('…');
+    if (ts.length > 3) return parts.join(' · ') + ' 等';
     return parts.join(' · ');
   }
 
@@ -3432,18 +3489,27 @@
 
       var units0 = (tab && tab.units) || [];
       if (units0.length) {
-        h += '<h4>单站叠加方式（可单独覆盖）</h4>';
+        h += '<h4>每站的积分规则</h4>';
+        h += '<div class="hint" style="margin-bottom:8px">分值来自<b>这场赛事自己的「赛事积分榜」</b>。' +
+          '点「改规则」直接跳到那场赛事的设置页，改完返回这里即可看到重算结果。</div>';
         units0.forEach(function (u) {
           var ov = se.rule.overrides[u.key] || {};
+          var sr = u.siteRule;
+          var txt = u.ptsOn
+            ? (u.siteUnit === 'stage' ? '按阶段各算一次 · ' + ptsRuleText(sr) : ptsRuleText(sr))
+            : '还没有启用积分榜';
           h += '<div class="unit-row">' +
             seasonStatusTag(u.status) +
             '<span class="uname" title="' + esc(u.label) + '">' + esc(u.label) + '</span>' +
-            '<span class="tag">' + esc(u.ptsOn ? (u.siteMode === 'win' ? '按胜场' : '按名次') : '未启用积分') + '</span>' +
+            '<span class="hint se-pts">' + esc(txt) + '</span>' +
             '<select data-unit-rule="stack" data-key="' + esc(u.key) + '">' +
             '<option value="">叠加：跟随默认</option>' +
             '<option value="1"' + (ov.stack === true ? ' selected' : '') + '>叠加</option>' +
             '<option value="0"' + (ov.stack === false ? ' selected' : '') + '>不叠加</option>' +
             '</select>' +
+            '<button class="btn sm' + (u.ptsOn ? '' : ' primary') + '" data-act="editStopPts" ' +
+            'data-tid="' + esc(u.tid) + '" data-need-on="' + (u.ptsOn ? '0' : '1') + '">' +
+            (u.ptsOn ? '改规则' : '启用并设置') + '</button>' +
             '</div>';
         });
       }
@@ -3579,7 +3645,8 @@
       '<button class="btn' + (seasonOpen ? ' primary' : '') + '" data-act="seasonRules">' +
       (seasonOpen ? '收起积分规则' : '积分规则') + '</button>' +
       '<button class="btn" data-act="seasonCSV">导出积分榜 CSV</button>' +
-      '<button class="btn" data-act="seasonPrint">打印积分榜</button>' +
+      '<button class="btn primary" data-act="seasonImg">导出积分榜 JPG</button>' +
+      '<button class="btn" data-act="seasonPDF">存 PDF</button>' +
       '</div>';
 
     /* ---- KPI ---- */
@@ -3731,15 +3798,20 @@
     tab.units.forEach(function (u) { h += '<th>' + esc(u.label) + '</th>'; });
     h += '</tr></thead><tbody>';
     tab.rows.forEach(function (r) {
-      h += '<tr><td>' + r.pos + '</td><td>' + esc(r.name) + '</td><td>' + U.fmt(r.total) +
-        '</td><td>' + r.stops + '</td><td>' + (r.best || '') + '</td>';
+      h += '<tr><td><span class="rank-badge' + (r.pos >= 1 && r.pos <= 3 ? ' r' + r.pos : '') + '">' + r.pos + '</span></td>' +
+        '<td><b>' + esc(r.name) + '</b></td><td><b>' + U.fmt(r.total) + '</b></td>' +
+        '<td>' + r.stops + '</td><td>' + (r.best ? ('第 ' + r.best) : '—') + '</td>';
       tab.units.forEach(function (u) {
         var x = r.units[u.key];
-        h += '<td>' + (x ? U.fmt(x.pts) : '') + '</td>';
+        h += '<td>' + (x ? U.fmt(x.pts) : '—') + '</td>';
       });
       h += '</tr>';
     });
     h += '</tbody></table>';
+    if (plan === 'site') {
+      h += '<div style="font-size:12px;margin-top:10px;color:#666">' +
+        '口径：每站按<b>该赛事自己的积分规则</b>计分，赛季只做加总。</div>';
+    }
     return h;
   }
 
@@ -3774,9 +3846,33 @@
     };
     var el = document.getElementById('view-' + curView);
     if (el) { el.style.display = ''; el.innerHTML = map[curView](); }
+
+    // 一跳到位：从赛季页跳过来时，把目标卡片滚进视野并闪一下
+    if (scrollTarget) {
+      var tg = document.getElementById(scrollTarget);
+      scrollTarget = '';
+      if (tg) {
+        try { tg.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { tg.scrollIntoView(); }
+        tg.classList.add('flash-once');
+        setTimeout(function () { tg.classList.remove('flash-once'); }, 1600);
+      }
+    }
   }
 
   /* ================= 交互 ================= */
+  // 打开某场赛事并重置所有视图内的临时状态（赛事列表、赛季页跳转都走这里）
+  function openTournamentById(id) {
+    var t = S.get(id);
+    if (!t) { toast('读取赛事失败', true); return false; }
+    T = t; S.setCurrentId(id); TMS.current = T;
+    editStage = 0;
+    stView = { stageIndex: T.currentStage || 0, groupIdx: -1, bracketMerged: true };
+    showHistory = false; arrangeOn = false; slotOn = false; slotDraft = null;
+    arrGroupIdx = -1; viewRound = -1; viewStageIdx = -1;
+    exSel = { stage: T.currentStage || 0, round: -1, group: -1 };
+    return true;
+  }
+
   function findMatch(id) {
     var stage = T.stages[T.currentStage], out = null;
     (stage.roundsData || []).forEach(function (rd) {
@@ -3798,11 +3894,8 @@
       toast('已新建赛事：' + name);
     },
     openT: function (el) {
-      var id = el.getAttribute('data-id');
-      var t = S.get(id);
-      if (!t) { toast('读取赛事失败', true); return; }
-      T = t; S.setCurrentId(id); TMS.current = T;
-      editStage = 0; stView = { stageIndex: T.currentStage || 0, groupIdx: -1, bracketMerged: true }; showHistory = false; arrangeOn = false; slotOn = false; slotDraft = null; arrGroupIdx = -1; viewRound = -1; viewStageIdx = -1; exSel = { stage: T.currentStage || 0, round: -1, group: -1 };
+      if (!openTournamentById(el.getAttribute('data-id'))) return;
+      seasonBack = '';
       curView = 'setup'; render();
     },
     dupT: function (el) {
@@ -4810,12 +4903,17 @@
       var tab = E.seasonTable(se, list);
       U.saveFile(se.name + ' 积分榜.csv', seasonCSVText(se, tab), 'text/csv;charset=utf-8', exDone);
     };
-    acts.seasonPrint = function () {
+    acts.seasonImg = function () {
       var se = S.getSeason(curSeasonId);
       if (!se) return;
-      var list = S.tournamentsOfSeason(se.id);
-      var tab = E.seasonTable(se, list);
-      X.printHTML(seasonHTMLReport(se, tab), exDone);
+      var tab = E.seasonTable(se, S.tournamentsOfSeason(se.id));
+      X.saveImage(seasonHTMLReport(se, tab), se.name + '_赛季积分榜.jpg', exDone);
+    };
+    acts.seasonPDF = function () {
+      var se = S.getSeason(curSeasonId);
+      if (!se) return;
+      var tab = E.seasonTable(se, S.tournamentsOfSeason(se.id));
+      X.savePDF(seasonHTMLReport(se, tab), se.name + '_赛季积分榜.pdf', exDone);
     };
 
     /* ---------- 赛事积分榜 ---------- */
@@ -4904,8 +5002,11 @@
       var now = E.seasonPlan(se);
       if (want === now) return;
       function apply() {
+        // 用户主动选过方案 → 打上标记，之后的 normalize 不再自动改回各站规则
+        se.rule.planLock = true;
         if (want === 'site') {
           se.rule.source = 'tournament';
+          se.rule.plan = 'site';
         } else {
           se.rule.source = 'season';
           se.rule.plan = (want === 'stage') ? 'stage' : 'single';
@@ -4921,7 +5022,9 @@
         toast(want === 'site' ? '已改为各站自己的积分（赛季只加总）'
           : (want === 'stage' ? '已改为每个阶段分别设置' : '已改为赛季统一计分'));
       }
-      if (now === 'site' || want === 'site') {
+      // 只有「改成各站自己的积分」会丢掉赛季统一分值的使用，需要确认；
+      // 改成 single / stage 不会丢任何已填的分值，直接生效（少一次点击）。
+      if (want === 'site' && now !== 'site') {
         ask('改用「' + seasonPlanName(want) + '」',
           '切换后积分榜会按新口径重算（原来那套设置会保留，随时可以改回来）。确定吗？',
           function (yes) { if (yes) apply(); }, '切换');
@@ -4929,6 +5032,36 @@
       }
       apply();
     };
+    // v2.5：赛季页 →「改这一站的积分规则」：直接跳到那场赛事的设置页
+    acts.editStopPts = function (el) {
+      var tid = el.getAttribute('data-tid');
+      var se = curSeason();
+      var needOn = el.getAttribute('data-need-on') === '1';
+      if (needOn) {
+        var tt = S.get(tid);
+        if (tt) {
+          if (!tt.ptsRule) tt.ptsRule = M.defaultPtsRule();
+          tt.ptsRule.on = true;
+          S.put(tt);
+        }
+      }
+      if (!openTournamentById(tid)) return;
+      seasonBack = se ? se.id : '';
+      scrollTarget = 'ptsCard';
+      curView = 'setup';
+      render();
+      toast(needOn ? '已启用这一站的积分榜，填好分值后返回赛季即可' : '改完点「← 返回赛季」');
+    };
+    // 回到赛季页，并直接展开积分规则面板
+    acts.backToSeason = function () {
+      var id = seasonBack;
+      seasonBack = '';
+      if (id) curSeasonId = id;
+      seasonOpen = true;
+      curView = 'season';
+      render();
+    };
+
     // 逐阶段模式：展开 / 收起某个阶段的设置
     acts.seStageToggle = function (el) {
       var k = el.getAttribute('data-key') || '';
@@ -5058,51 +5191,65 @@
       if (!r || r.canceled) return;
       toast(r.msg || (r.ok ? '导出完成' : '导出失败'), r.ok === false);
     }
-    acts.printRound = function () {
-      // 打印「当前正在看的那一轮」：回看历史轮次时打印历史轮次，而不是最新一轮
+    acts.imgRound = function () {
       var si = (viewStageIdx >= 0 && viewStageIdx < T.stages.length) ? viewStageIdx : T.currentStage;
       var stage = T.stages[si];
       if (!stage || !stage.roundsData.length) { toast('尚未生成对阵', true); return; }
       var k = (viewRound >= 0 && viewRound < stage.roundsData.length) ? viewRound : stage.roundsData.length - 1;
-      X.printHTML(X.matchupsHTML(T, {
+      X.saveImage(X.matchupsHTML(T, {
         stageIndex: si,
         roundIndex: stage.roundsData[k].index
-      }), exDone);
+      }), T.name + '_' + X.roundLabel(stage.roundsData[k].index) + '.jpg', exDone);
     };
-    /* 合并对阵图：多个淘汰赛阶段合成一份，可打印 / 存 PDF */
-    acts.printMerged = function () {
+    /* 合并对阵图：多个淘汰赛阶段合成一份，可导出 JPG / PDF */
+    acts.imgMerged = function () {
       if (!E.elimStageIndexes(T).length) { toast('本赛事还没有淘汰赛阶段的对阵', true); return; }
-      X.printHTML(X.mergedBracketHTML(T), exDone);
+      X.saveImage(X.mergedBracketHTML(T), T.name + '_淘汰赛合并对阵图.jpg', exDone);
     };
     acts.pdfMerged = function () {
       if (!E.elimStageIndexes(T).length) { toast('本赛事还没有淘汰赛阶段的对阵', true); return; }
       X.savePDF(X.mergedBracketHTML(T), T.name + '_淘汰赛合并对阵图.pdf', exDone);
     };
-    acts.printAll = function () {
-      X.printHTML(X.matchupsHTML(T, { stageIndex: T.currentStage }), exDone);
-    };
-    acts.printStanding = function () {
+    // 排名页导出：淘汰赛出对阵图，其余出排名表
+    function standingViewHTML() {
       var si = Math.min(stView.stageIndex, T.stages.length - 1);
-      X.printHTML(X.standingsHTML(T, {
+      if (isElimStage(T.stages[si])) return elimExportHTML(si);
+      return X.standingsHTML(T, {
         stageIndex: si,
         groupIdx: (stView.groupIdx >= 0 ? stView.groupIdx : undefined)
-      }), exDone);
+      });
+    }
+    acts.imgStanding = function () {
+      var elim = isElimStage(T.stages[stView.stageIndex]);
+      X.saveImage(standingViewHTML(), T.name + (elim ? '_对阵图.jpg' : '_排名.jpg'), exDone,
+        elim ? { shrink: true, width: 1180 } : null);
     };
-    // 整站完整报告正文（打印 / PDF 共用）
+    acts.pdfStanding = function () {
+      var elim = isElimStage(T.stages[stView.stageIndex]);
+      X.savePDF(standingViewHTML(), T.name + (elim ? '_对阵图.pdf' : '_排名.pdf'), exDone,
+        elim ? { shrink: true, width: 1180 } : null);
+    };
+    // 整站完整报告正文（PDF / JPG 共用）：淘汰赛阶段出对阵图，其它阶段出排名表 + 对阵表
     function fullReportHTML() {
       var h = '';
       h += '<h1 style="font-size:22px;margin:0 0 4px">' + esc(T.name) + '</h1>';
       h += '<div style="font-size:12px;margin-bottom:10px">生成时间：' + esc(U.now()) + '</div>';
       for (var i = 0; i < T.stages.length; i++) {
-        h += X.standingsHTML(T, { stageIndex: i });
-        h += X.matchupsHTML(T, { stageIndex: i });
+        var st = T.stages[i];
+        if (isElimStage(st)) {
+          h += elimExportHTML(i, T.name + ' · ' + st.name + ' 对阵图');
+        } else {
+          h += X.standingsHTML(T, { stageIndex: i });
+          h += X.matchupsHTML(T, { stageIndex: i });
+        }
       }
       return h;
     }
-    acts.printFull = function () { X.printHTML(fullReportHTML(), exDone); };
-    acts.printFinal = acts.printFull;
     acts.pdfFull = function () {
       X.savePDF(fullReportHTML(), T.name + '_完整报告.pdf', exDone);
+    };
+    acts.imgFull = function () {
+      X.saveImage(fullReportHTML(), T.name + '_完整报告.jpg', exDone);
     };
     acts.saveJSON = function () {
       X.exportJSON(T, T.name + '_存档.json', exDone);
@@ -5134,17 +5281,17 @@
       toast(r.msg || (r.ok ? '导出完成' : '导出失败'), r.ok === false);
     }
 
-    acts.printSelRound = function () {
-      var si = Math.min(exSel.stage, T.stages.length - 1);
-      var st = T.stages[si];
-      if (!st || !st.roundsData.length) { toast('该阶段尚未生成对阵', true); return; }
-      X.printHTML(X.matchupsHTML(T, exOpts()), exDone);
-    };
     acts.pdfSelRound = function () {
       var si = Math.min(exSel.stage, T.stages.length - 1);
       var st = T.stages[si];
       if (!st || !st.roundsData.length) { toast('该阶段尚未生成对阵', true); return; }
       X.savePDF(X.matchupsHTML(T, exOpts()), exFileTag() + '_对阵.pdf', exDone);
+    };
+    acts.imgSelRound = function () {
+      var si = Math.min(exSel.stage, T.stages.length - 1);
+      var st = T.stages[si];
+      if (!st || !st.roundsData.length) { toast('该阶段尚未生成对阵', true); return; }
+      X.saveImage(X.matchupsHTML(T, exOpts()), exFileTag() + '_对阵.jpg', exDone);
     };
     acts.csvSelRound = function () {
       var si = Math.min(exSel.stage, T.stages.length - 1);
@@ -5152,19 +5299,29 @@
       if (!st || !st.roundsData.length) { toast('该阶段尚未生成对阵', true); return; }
       X.downloadCSV(exFileTag() + '_对阵.csv', X.matchupsCSV(T, exOpts()), exDone);
     };
-    acts.printSelStanding = function () {
-      X.printHTML(X.standingsHTML(T, {
-        stageIndex: Math.min(exSel.stage, T.stages.length - 1),
+    // 排名类导出：淘汰赛阶段出「对阵图」，瑞士轮 / 循环赛 / 小组赛仍出排名表
+    function standingExportHTML() {
+      var si = Math.min(exSel.stage, T.stages.length - 1);
+      if (isElimStage(T.stages[si])) return elimExportHTML(si);
+      return X.standingsHTML(T, {
+        stageIndex: si,
         groupIdx: (exSel.group >= 0 ? exSel.group : undefined),
         upToRound: exUpTo()
-      }), exDone);
-    };
+      });
+    }
+    function standingTag() {
+      var si = Math.min(exSel.stage, T.stages.length - 1);
+      return exFileTag() + (isElimStage(T.stages[si]) ? '_对阵图' : '_排名');
+    }
     acts.pdfSelStanding = function () {
-      X.savePDF(X.standingsHTML(T, {
-        stageIndex: Math.min(exSel.stage, T.stages.length - 1),
-        groupIdx: (exSel.group >= 0 ? exSel.group : undefined),
-        upToRound: exUpTo()
-      }), exFileTag() + '_排名.pdf', exDone);
+      var elim = isElimStage(T.stages[Math.min(exSel.stage, T.stages.length - 1)]);
+      X.savePDF(standingExportHTML(), standingTag() + '.pdf', exDone,
+        elim ? { shrink: true, width: 1180 } : null);
+    };
+    acts.imgSelStanding = function () {
+      var elim = isElimStage(T.stages[Math.min(exSel.stage, T.stages.length - 1)]);
+      X.saveImage(standingExportHTML(), standingTag() + '.jpg', exDone,
+        elim ? { shrink: true, width: 1180 } : null);
     };
     acts.csvSelStanding = function () {
       X.downloadCSV(exFileTag() + '_排名' + (exSel.round >= 0 ? '（截至第' + (exSel.round + 1) + '轮）' : '') + '.csv',
