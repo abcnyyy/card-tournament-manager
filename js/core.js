@@ -426,9 +426,9 @@
       groupRounds: 1,
       groupCycles: 1,
       // 分数继承
-      //   tie = true 时，除了积分，还把上一阶段的「全部小分」一起带进本阶段：
-      //   累计小分、净小分、赢局 / 输局（净胜局）、对手分、累进分，全部按同一比例折算
-      inherit: { enabled: false, ratio: 100, fromStage: null, tie: false },
+      //   stats = true（默认）时，场次 / 胜 / 平 / 负 / 轮空 / 赢局 / 输局 按原值带进本阶段
+      //   tie = true 时，再把「小分」一起带：累计小分、净小分、对手分、累进分，按同一比例折算
+      inherit: { enabled: false, ratio: 100, fromStage: null, tie: false, stats: true },
       // 晋级
       adv: { type: 'all', count: 8, score: 0, perGroup: 2 },
       // 中途淘汰（按轮次裁人：第 N 轮结束后只保留前 M 名）
@@ -1005,6 +1005,8 @@
       else {
         s.inherit = Object.assign({}, d.inherit, s.inherit);
         if (typeof s.inherit.tie !== 'boolean') s.inherit.tie = false;
+        // v2.6：老存档没有「继承战绩」字段，按开启处理（胜场 / 负场 / 小局一定带上）
+        if (typeof s.inherit.stats !== 'boolean') s.inherit.stats = true;
       }
       if (s.adv === undefined) s.adv = d.adv;
       if (!s.gfElevFormat || typeof s.gfElevFormat !== 'object') s.gfElevFormat = Object.assign({}, d.gfElevFormat);

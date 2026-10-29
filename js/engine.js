@@ -1193,7 +1193,7 @@
   E.buildStats = function (t, stage, scopePlayerIds, groupIdx, upToRound) {
     var stats = {}, i, j;
     var fmt = E.fmtOf(t, stage), sc = E.scOf(t, stage);
-    // 继承上一阶段（积分 + 可选小分）。比例 0 时不带任何东西。
+    // 继承上一阶段（积分 + 战绩 + 可选小分）。比例 0 时不带任何东西。
     var inh = null;
     if (stage.inherit && stage.inherit.enabled) {
       var pst = E.stageFinalStats(t, stage.index - 1);
@@ -1201,7 +1201,10 @@
         inh = {
           map: pst,
           ratio: (parseFloat(stage.inherit.ratio) || 0) / 100,
-          tie: !!stage.inherit.tie
+          tie: !!stage.inherit.tie,
+          // 战绩（场次 / 胜 / 平 / 负 / 轮空 / 赢局 / 输局）默认跟着积分一起带，
+          // 老存档没这个字段也按「带」处理
+          stats: stage.inherit.stats !== false
         };
       }
     }
@@ -1212,25 +1215,41 @@
       var init = parseFloat(pl.initialScore) || 0;
       // 上一阶段「提前晋级」奖励分：进入本阶段时直接计入积分
       var cBonus = (stage.carryBonus && stage.carryBonus[id]) ? (parseFloat(stage.carryBonus[id]) || 0) : 0;
-      // 继承来的「全部小分」，按同一比例折算：
-      //   累计小分 / 净小分 / 赢局 / 输局 / 净胜局 / 对手分 / 累进分
-      var bc = 0, bgw = 0, bgl = 0, bbu = 0, bcd = 0, bpg = 0;
-      if (inh && inh.tie) {
+      // 继承来的「小分」，按同一比例折算：累计小分 / 净小分 / 对手分 / 累进分
+      var bc = 0, bbu = 0, bcd = 0, bpg = 0;
+      // 继承来的「战绩与局数」：按原值累计（场次、胜负平、轮空都是整数记录，
+      // 折算成半个胜场没有意义；破同看的是相对大小，原值带入不改变先后）
+      var bm = 0, bw = 0, bd = 0, bl = 0, bbye = 0, bgw = 0, bgl = 0;
+      if (inh) {
         var pv = inh.map[id] || {};
-        bc = r2((parseFloat(pv.cumulative) || 0) * inh.ratio);
-        bgw = r2((parseFloat(pv.gamesWon) || 0) * inh.ratio);
-        bgl = r2((parseFloat(pv.gamesLost) || 0) * inh.ratio);
-        bbu = r2((parseFloat(pv.buchholz) || 0) * inh.ratio);
-        bcd = r2((parseFloat(pv.cumDiff) || 0) * inh.ratio);
-        bpg = r2((parseFloat(pv.progressive) || 0) * inh.ratio);
+        if (inh.stats) {
+          bm = parseInt(pv.matches, 10) || 0;
+          bw = parseInt(pv.wins, 10) || 0;
+          bd = parseInt(pv.draws, 10) || 0;
+          bl = parseInt(pv.losses, 10) || 0;
+          bbye = parseInt(pv.byes, 10) || 0;
+          bgw = r2(parseFloat(pv.gamesWon) || 0);
+          bgl = r2(parseFloat(pv.gamesLost) || 0);
+        }
+        if (inh.tie) {
+          bc = r2((parseFloat(pv.cumulative) || 0) * inh.ratio);
+          bbu = r2((parseFloat(pv.buchholz) || 0) * inh.ratio);
+          bcd = r2((parseFloat(pv.cumDiff) || 0) * inh.ratio);
+          bpg = r2((parseFloat(pv.progressive) || 0) * inh.ratio);
+        }
       }
       stats[id] = {
         id: id,
         points: init + cBonus,                      // 初始携带分 + 提前晋级奖励
         carryBonus: cBonus,
-        matches: 0, wins: 0, draws: 0, losses: 0, byes: 0,
+        // 场次 / 胜 / 平 / 负 / 轮空：继承值起步，再叠加本阶段
+        matches: bm, wins: bw, draws: bd, losses: bl, byes: bbye,
+        // 本阶段自己的战绩：提前晋级 / 淘汰判定、赛事积分榜必须只用这一份，
+        // 否则「上一阶段赢够 3 场」会在进入本阶段的一瞬间被判成提前晋级
+        ownMatches: 0, ownWins: 0, ownDraws: 0, ownLosses: 0, ownByes: 0,
         // 赢局 / 输局 / 累计小分都从继承值起步，再叠加本阶段实际战绩
         gamesWon: bgw, gamesLost: bgl, gamesDiff: r2(bgw - bgl), cumulative: bc,
+        ownGamesWon: 0, ownGamesLost: 0,
         // 本阶段自己打出的小分（净小分要用「本阶段」的对手小分来算，避免继承值互相干扰）
         ownCum: 0,
         // 继承来的小分原值（不含本阶段，用于跨阶段净小分 / 累进分累加）
@@ -1274,9 +1293,11 @@
           var alone = A || B;
           if (stats[alone]) {
             stats[alone].points += E.pointsFrom(m, (alone === A ? 'A' : 'B'), sc, fmt);
-            stats[alone].byes += 1;
+            stats[alone].byes += 1; stats[alone].ownByes += 1;
             stats[alone].matches += 1;   // 轮空计入已赛场次
+            stats[alone].ownMatches += 1;
             stats[alone].wins += 1;      // 轮空按一场胜利计入
+            stats[alone].ownWins += 1;
           }
           continue;
         }
@@ -1298,10 +1319,11 @@
         }
         sa.points += pa; sb.points += pb;
         sa.matches += 1; sb.matches += 1;
-        sa.gamesWon += m.result.gamesA; sa.gamesWon += 0;
-        sa.gamesLost += m.result.gamesB;
-        sb.gamesWon += m.result.gamesB;
-        sb.gamesLost += m.result.gamesA;
+        sa.ownMatches += 1; sb.ownMatches += 1;
+        sa.gamesWon += m.result.gamesA; sa.ownGamesWon += m.result.gamesA;
+        sa.gamesLost += m.result.gamesB; sa.ownGamesLost += m.result.gamesB;
+        sb.gamesWon += m.result.gamesB; sb.ownGamesWon += m.result.gamesB;
+        sb.gamesLost += m.result.gamesA; sb.ownGamesLost += m.result.gamesA;
         sa.gamesDiff = sa.gamesWon - sa.gamesLost;
         sb.gamesDiff = sb.gamesWon - sb.gamesLost;
 
@@ -1314,10 +1336,10 @@
         if (sa.opponents.indexOf(B) < 0) sa.opponents.push(B);
         if (sb.opponents.indexOf(A) < 0) sb.opponents.push(A);
 
-        if (m.result.winner === 'A') { sa.wins += 1; sb.losses += 1; }
-        else if (m.result.winner === 'B') { sb.wins += 1; sa.losses += 1; }
-        else if (drawAsLose) { sa.losses += 1; sb.losses += 1; }
-        else { sa.draws += 1; sb.draws += 1; }
+        if (m.result.winner === 'A') { sa.wins += 1; sa.ownWins += 1; sb.losses += 1; sb.ownLosses += 1; }
+        else if (m.result.winner === 'B') { sb.wins += 1; sb.ownWins += 1; sa.losses += 1; sa.ownLosses += 1; }
+        else if (drawAsLose) { sa.losses += 1; sa.ownLosses += 1; sb.losses += 1; sb.ownLosses += 1; }
+        else { sa.draws += 1; sa.ownDraws += 1; sb.draws += 1; sb.ownDraws += 1; }
       }
 
       // 累进分：本轮全部结束后，把每人「当时的累计积分」再加一遍
@@ -1383,7 +1405,7 @@
     return stats;
   };
 
-  /** 某阶段结束时的完整统计（积分 + 全部小分），用于「继承积分 / 继承小分」 */
+  /** 某阶段结束时的完整统计（积分 + 战绩 + 全部小分），用于「继承积分 / 继承战绩 / 继承小分」 */
   E.stageFinalStats = function (t, stageIndex) {
     if (!(stageIndex >= 0) || stageIndex >= t.stages.length) return null;
     var st = t.stages[stageIndex];
@@ -1395,13 +1417,19 @@
       var s = stats[id];
       if (!s) {
         out[id] = {
-          points: 0, cumulative: 0, cumDiff: 0, gamesWon: 0, gamesLost: 0,
+          points: 0, matches: 0, wins: 0, draws: 0, losses: 0, byes: 0,
+          cumulative: 0, cumDiff: 0, gamesWon: 0, gamesLost: 0,
           gamesDiff: 0, buchholz: 0, progressive: 0
         };
         return;
       }
       out[id] = {
         points: s.points,
+        matches: s.matches,            // 场次
+        wins: s.wins,                  // 胜场
+        draws: s.draws,                // 平场
+        losses: s.losses,              // 负场
+        byes: s.byes,                  // 轮空
         cumulative: s.cumulative,      // 累计小分
         cumDiff: s.cumDiff,            // 净小分
         gamesWon: s.gamesWon,          // 赢局
@@ -2932,8 +2960,9 @@
         if (stage.eliminated.indexOf(id) >= 0) return;
         var s = stats[id];
         if (!s) return;
-        var w = (c.basis === 'game') ? s.gamesWon : s.wins;
-        var l = (c.basis === 'game') ? s.gamesLost : s.losses;
+        // 只认「本阶段」打出来的战绩：继承来的胜场不能直接把他判成提前晋级
+        var w = (c.basis === 'game') ? s.ownGamesWon : s.ownWins;
+        var l = (c.basis === 'game') ? s.ownGamesLost : s.ownLosses;
         // 同一轮同时触线时优先判晋级（对选手更有利，也避免"晋级即淘汰"的矛盾）
         if (c.winTarget > 0 && w >= c.winTarget) {
           stage.clinched.push(id);
@@ -4898,9 +4927,11 @@
     var st = [];
     try { st = E.standings(t, { stageIndex: si }) || []; } catch (e) { st = []; }
     return st.map(function (s) {
+      // 战绩一律取「本阶段」：赛事积分榜按胜场算分时，各阶段的分要分开给，
+      // 继承值已经在上一阶段的单元里算过一次了（整站口径由 tournamentResults 逐阶段累加）
       return {
         id: s.id, name: s.name, rank: s.rank,
-        wins: s.wins, losses: s.losses, draws: s.draws, matches: s.matches,
+        wins: s.ownWins, losses: s.ownLosses, draws: s.ownDraws, matches: s.ownMatches,
         adv: (stage.advanced || []).indexOf(s.id) >= 0
       };
     });
