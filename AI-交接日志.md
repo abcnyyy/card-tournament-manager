@@ -85,7 +85,7 @@ android/app/src/main/java/com/local/tournament/MainActivity.java
 tools/                   ← 测试与构建脚本，共 50 套用例（详见第 8 节）
   headless.js            ← 无头浏览器环境（http 静态服务 + CDP）
   test_*.js              ← 引擎/纯逻辑测试（25 套）
-  smoke_*.js             ← 界面冒烟（25 套）
+  smoke_*.js             ← 界面冒烟（26 套）
   verify_pack.js         ← 从 dist/win-unpacked/resources/app.asar 解包复跑
   smoke_exe.js           ← 直接启动打包后的 exe 做冒烟（需 TMS_SMOKE_HIDDEN=1）
   md2html.py             ← 使用说明.md → 使用说明.html
@@ -300,13 +300,14 @@ node tools/test_v34.js         # 34 项，继承战绩
 
 历史：`test_v33`（赛季各站 / PDF）、`test_v32`（赛季三方案）、`test_v25`、`test_v24`…`test_v18`、`test_engine / test_bracket / test_de_v15 / test_clinch_v16 / test_path_v17 / test_scoreline / test_stage_features / test_fixes_v14`
 
-### 8.2 界面冒烟（25 套，`tools/smoke_*.js`）
+### 8.2 界面冒烟（26 套，`tools/smoke_*.js`）
 
 `headless.js` 起本地 http + Edge `--headless=new`，用 CDP `Runtime.evaluate` 注入脚本、点按钮、读 DOM。
 
 ```bash
-for f in tools/smoke_v*.js tools/smoke_flow.js tools/smoke_scoreline.js; do node "$f" || echo "FAIL $f"; done
-node tools/smoke_exe.js        # 打包后的 exe，必须先 export TMS_SMOKE_HIDDEN=1
+npm run test:smoke        # 一键跑全部界面冒烟（tools/run_tests.js --smoke）
+node tools/smoke_v35.js   # 最新：回合（sets）设定专项（14 项，全程走界面按钮）
+node tools/smoke_exe.js   # 打包后的 exe，必须先 export TMS_SMOKE_HIDDEN=1
 ```
 
 > ⚠️ **受限沙箱里跑不了冒烟（2026-10-31 实测）**：Chromium 多进程 IPC 需要 Windows 命名管道，
@@ -464,7 +465,7 @@ Pages 源分支是 `gh-pages`，路径只接受 `/` 或 `/docs`。推完等 1~2 
 
 ## 13. 当前状态与建议下一步
 
-**已完成、可交付**：v2.6.0（+ 2026-10-31 审计修复），引擎 26 套 + 界面 25 套全绿（界面冒烟需不受限环境），Windows / Android / Web 三端产物齐全，Release `v2.6` 已发布。
+**已完成、可交付**：v2.6.0（+ 2026-10-31 审计修复），引擎 26 套 + 界面 26 套全绿（界面冒烟需不受限环境），Windows / Android / Web 三端产物齐全，Release `v2.6` 已发布。
 
 2026-10-31 这一轮修了什么（详见 `审计报告-2026-10-31.md` + `CHANGELOG「未发布」`）：
 
