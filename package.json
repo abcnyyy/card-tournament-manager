@@ -19,7 +19,7 @@
     "apk:release": "cd android && gradlew.bat assembleRelease"
   },
   "devDependencies": {
-    "electron": "^30.5.1",
+    "electron": "^45.1.0",
     "electron-builder": "^24.13.3"
   },
   "dependencies": {
