@@ -680,9 +680,21 @@
       return s ? JSON.parse(s) : def;
     } catch (e) { return def; }
   }
+  /* 写盘：失败时记下原因（最常见的失败是 localStorage 配额满了）。
+     v2.6.1：以前这里把异常吞掉只返回 false，调用方又都不看返回值，
+     结果「保存失败」在界面上表现为「已保存」，一刷新全丢。 */
+  S.lastError = '';
   function writeJSON(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); return true; }
-    catch (e) { return false; }
+    try {
+      localStorage.setItem(key, JSON.stringify(val));
+      S.lastError = '';
+      return true;
+    } catch (e) {
+      S.lastError = (e && (e.name === 'QuotaExceededError' || /quota/i.test(e.message || '')))
+        ? '本机存储空间已满（浏览器 / 应用大约 5MB）。请先导出存档备份，然后删掉不用的赛事或清空回退记录再保存。'
+        : ('保存失败：' + (e && e.message ? e.message : e));
+      return false;
+    }
   }
 
   S.loadIndex = function () { return readJSON(IDX_KEY, []); };
@@ -694,9 +706,15 @@
   };
 
   // 保存赛事并刷新索引
-  S.put = function (t) {
+  // v2.6.1：新增 opts.quiet —— 给「顺手改别的赛事（赛季归属等）」的调用方用：
+  //   以前 S.put 一律把 currentId 改成被保存的那一场，于是在列表页给赛事 B 改赛季归属后，
+  //   刷新会直接打开 B，而且内存里的旧 A 下一次保存还会把 B 的改动覆盖回去。
+  //   现在这类调用走 S.putQuiet / S.put(t,{quiet:true})，不碰指针；正常保存仍是老行为（写谁就打开谁）。
+  S.put = function (t, opts) {
+    if (!t || !t.id) return false;
     t.updatedAt = util.now();
     var ok = writeJSON(PREFIX + t.id, t);
+    if (!ok) return false;                 // 赛事本体都没写进去，就别动索引（否则索引指向空数据）
     var idx = S.loadIndex();
     var meta = {
       id: t.id,
@@ -713,9 +731,12 @@
     }
     if (!found) idx.push(meta);
     S.saveIndex(idx);
-    S.setCurrentId(t.id);
-    return ok;
+    if (!(opts && opts.quiet)) S.setCurrentId(t.id);
+    return true;
   };
+
+  // 保存但不改「当前赛事」指针（改别人的赛季归属、批量修数据时用）
+  S.putQuiet = function (t) { return S.put(t, { quiet: true }); };
 
   S.remove = function (id) {
     try { localStorage.removeItem(PREFIX + id); } catch (e) {}
@@ -936,10 +957,10 @@
   S.delSeason = function (id) {
     try { localStorage.removeItem(SEASON_PREFIX + id); } catch (e) {}
     S.saveSeasons(S.loadSeasons().filter(function (x) { return x.id !== id; }));
-    // 解除赛事归属，避免悬空引用
+    // 解除赛事归属，避免悬空引用（只改归属，不切当前赛事）
     S.loadIndex().forEach(function (m) {
       var t = S.get(m.id);
-      if (t && t.seasonId === id) { t.seasonId = null; S.put(t); }
+      if (t && t.seasonId === id) { t.seasonId = null; S.putQuiet(t); }
     });
     return true;
   };
@@ -1110,6 +1131,27 @@
       });
     }
     if (t.format) t.format = M.normalizeFormat(t.format);
+    /* ---- 字段类型校验（v2.6.1）----
+       以前只补默认值、不校验类型：导入一个 players 不是数组的存档会直接抛
+       TypeError（界面显示"存档解析失败"，T 却已经被改成半成品），
+       而且 id / seed 里可以塞任意字符串（会拼进 HTML 属性，形成注入点）。 */
+    if (!Array.isArray(t.players)) t.players = [];
+    var sawIds = {};
+    t.players = t.players.filter(function (p) {
+      if (!p || typeof p !== 'object') return false;   // 丢掉坏数据，别让整个存档打不开
+      return true;
+    });
+    t.players.forEach(function (p) {
+      // id：只允许字母数字下划线短横（拼进 data-* / id= 时才安全），非法的一律重发
+      if (!/^[\w-]{1,40}$/.test(String(p.id || '')) || sawIds[p.id]) p.id = util.uid('p');
+      sawIds[p.id] = 1;
+      if (typeof p.name !== 'string') p.name = String(p.name === undefined ? '' : p.name);
+      p.seed = Math.max(0, parseInt(p.seed, 10) || 0);
+      p.initialScore = parseFloat(p.initialScore);
+      if (!isFinite(p.initialScore)) p.initialScore = 0;
+    });
+    if (!/^[\w-]{1,40}$/.test(String(t.id || ''))) t.id = util.uid('t');
+    t.seed = (parseInt(t.seed, 10) >>> 0) || util.randomSeed();
     t.players.forEach(function (p) {
       if (p.active === undefined) p.active = true;
       if (p.hasBye === undefined) p.hasBye = false;
@@ -1118,13 +1160,34 @@
       p.startStage = parseInt(p.startStage, 10) || 0;
       // 团体赛：队员列表（个人赛不会用到）
       if (Array.isArray(p.members)) {
-        p.members.forEach(function (mb) {
-          if (!mb.id) mb.id = util.uid('mb');
+        p.members = p.members.filter(function (mb) {
+          if (!mb || typeof mb !== 'object') return false;
+          if (!/^[\w-]{1,40}$/.test(String(mb.id || ''))) mb.id = util.uid('mb');
           if (!(parseInt(mb.seed, 10) >= 0)) mb.seed = 0;
+          if (typeof mb.name !== 'string') mb.name = String(mb.name === undefined ? '' : mb.name);
+          return true;
         });
       }
     });
     return t;
+  };
+
+  /* 存档导入校验：只做「能不能安全地用」这一步，具体字段清洗交给 S.normalize。
+     @return {ok, msg, idHit}  idHit = 已经存在同 id 的赛事（界面要问用户覆盖还是另存） */
+  S.validateImport = function (obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+      return { ok: false, msg: '这不是有效的赛事存档（内容不是对象）' };
+    }
+    if (!Array.isArray(obj.players)) return { ok: false, msg: '存档里没有选手名单（players 不是数组）' };
+    if (obj.stages !== undefined && !Array.isArray(obj.stages)) {
+      return { ok: false, msg: '存档里的阶段数据已损坏（stages 不是数组）' };
+    }
+    var idHit = false;
+    if (obj.id) {
+      var idx = S.loadIndex();
+      idHit = idx.some(function (x) { return x.id === obj.id; });
+    }
+    return { ok: true, msg: '', idHit: idHit };
   };
 
 })(window);

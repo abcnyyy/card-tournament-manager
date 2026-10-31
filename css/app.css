@@ -592,14 +592,6 @@ tr.row-elim td { color: var(--fg-3); }
   .teamtab .tt-btn .btn { flex: 1 1 auto; }
 }
 
-/* 打印：对阵要打出来，但控件隐藏 */
-@media print {
-  .teamtab { background: transparent; border-top: 1px solid #ddd; }
-  .teamtab .tt-tools, .teamtab .tt-pl, .teamtab .tt-btn, .teamtab .tt-x,
-  .teamtab .tt-row .inline-num, .teamtab .qcolon { display: none !important; }
-  .teamtab .tt-row { border: 0; border-bottom: 1px solid #eee; border-radius: 0; }
-}
-/* ---- 展开区 ---- */
 .mrow-detail { display: none; padding: 0 0 6px; }
 .match.open .mrow-detail { display: block; }
 
@@ -1228,59 +1220,6 @@ tr.mateam > td { background: var(--surface-2); padding: 6px 10px; }
 .hd-row h3 { margin: 0; }
 
 /* ============================================================
-   11. 打印
-   ============================================================ */
-#printArea { display: none; }
-body.printing .app { display: none !important; }
-body.printing #printArea { display: block !important; padding: 8mm; }
-#printArea h2 { page-break-after: avoid; font-size: 14pt; }
-#printArea table { width: 100%; margin-bottom: 6mm; }
-
-@media print {
-  :root {
-    --bg: #fff; --surface: #fff; --surface-2: #fff; --surface-3: #fff;
-    --line: #000; --line-2: #000; --line-3: #ccc;
-    --fg: #000; --fg-2: #000; --fg-3: #444;
-    --brand: #000; --brand-soft: #fff; --brand-line: #000;
-    --ok: #000; --ok-soft: #fff; --ok-line: #000;
-    --danger: #000; --danger-soft: #fff; --danger-line: #000;
-    --purple: #000; --purple-soft: #fff; --purple-line: #000;
-    --amber: #000; --amber-soft: #fff; --amber-line: #000;
-    --shadow: none; --shadow-lg: none;
-  }
-  body { background: #fff; font-size: 10.5pt; }
-  .sidebar, .topbar .right, .tabs, .noprint, .btn { display: none !important; }
-  .app { display: block; }
-  .main { padding: 0; max-width: none; }
-  .card { border: 1px solid #000; box-shadow: none; page-break-inside: avoid; border-radius: 0; }
-  .card > h2, .card > h3 { border-bottom: 1px solid #000; }
-  table { font-size: 9.5pt; }
-  th { background: #fff !important; color: #000 !important; border-bottom: 1.5px solid #000; position: static; }
-  td { border-bottom: .5px solid #999; }
-  tr.champ td, tr.row-clinch td, tr.row-elim td { background: #fff !important; box-shadow: none !important; }
-  tr.champ td { font-weight: 700; }
-  .match, .bcard { page-break-inside: avoid; box-shadow: none; border: 1px solid #000; border-radius: 0; }
-  .match-head, .side.win, .brow.win, .bslot.win, .tag, .notice { background: #fff !important; color: #000 !important; }
-  /* 长行对阵：纸面上一行一场，去掉底色和录入区 */
-  .mrow-main {
-    display: flex !important; gap: 3px 8px;
-    background: #fff !important; border: 0 !important; padding: 3px 6px; min-height: 0;
-  }
-  .mrow-main .mquick, .mrow-main .mact, .batchpane { display: none !important; }
-  .mrow-main .mseat { width: 50px; }
-  .mrow-detail { display: block !important; }
-  .match.open .mrow-main { background: #fff !important; border-bottom: 0 !important; }
-  .match { break-inside: avoid; margin-bottom: 3px; }
-  .mtags .tag { border: 0; padding: 0 3px; }
-  .setbar, .boards, .games { padding: 2px 6px; background: #fff !important; }
-  .setchip, .gamechip, .brow { border: 1px solid #999; background: #fff !important; }
-  .side .pname::before, .side .pname::after { background: #000 !important; }
-  .side.win::before, tr.champ td:first-child, tr.row-clinch td:first-child { box-shadow: none !important; background: none !important; }
-  .notice { border: 1px solid #000; }
-  .statusbar { border: 1px solid #000; }
-}
-
-/* ============================================================
    12. 移动端（≤ 860px）
    ============================================================ */
 @media (max-width: 860px) {
@@ -1350,7 +1289,7 @@ body.printing #printArea { display: block !important; padding: 8mm; }
   table td input.inline-num { width: 42px; }
 
   /* 表格横向滑动 */
-  .card > table, .card > table.compact, .card > div > table {
+  .card > table, .card > table.compact, .card > div > table, .card > details > table {
     display: block; width: 100%;
     overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap;
   }
@@ -1358,8 +1297,8 @@ body.printing #printArea { display: block !important; padding: 8mm; }
   th { position: static; }
   th, td { padding: 7px 9px; }
 
-  /* 对阵卡：单列 */
-  .matchlist { grid-template-columns: 1fr; gap: 8px; }
+  /* 对阵卡：单列（.matchlist 是 flex 容器，这里只需要收紧间距） */
+  .matchlist { gap: 8px; }
   .match-head { font-size: 11px; padding: 5px 10px; }
   .pname { font-size: 14px; }
   .bigscore { font-size: 18px; }

@@ -10,7 +10,6 @@
   var curView = 'setup';
   var editStage = 0;
   var stView = { stageIndex: 0, groupIdx: -1, bracketMerged: true };
-  var showHistory = false;
   var arrangeOn = false;
   // 手动编排：小组赛要按组分别编排（-1 = 自动挑第一个待编排的组）
   var arrGroupIdx = -1;
@@ -175,7 +174,131 @@
     cur[parts[parts.length - 1]] = val;
   }
 
-  function save() { if (T) S.put(T); }
+  /* ---------------- 重绘相关的小工具 ---------------- */
+
+  /* 焦点指纹：全量重绘会把正在输入的框整个换掉，焦点和光标位置全丢。
+     这里只记「这个框是谁」（data-* 绑定路径 / 元素 id），不记 DOM 节点本身。 */
+  function focusSigOf(el) {
+    if (!el || !el.getAttribute || el === document.body) return null;
+    var attrs = ['data-bind', 'data-sbind', 'data-se-unit', 'data-se-path', 'data-player', 'data-field',
+      'data-member', 'data-tmember', 'data-team', 'data-season-t', 'data-tslot', 'data-slot', 'data-s',
+      'data-pair', 'data-pen', 'data-id', 'data-kind', 'data-side', 'data-unit-rule', 'data-key'];
+    var sig = [], i, v;
+    for (i = 0; i < attrs.length; i++) {
+      v = el.getAttribute(attrs[i]);
+      if (v !== null) sig.push([attrs[i], v]);
+    }
+    if (el.id) sig.push(['id', el.id]);
+    if (!sig.length) return null;
+    var ss = null, se = null;
+    try { ss = el.selectionStart; se = el.selectionEnd; } catch (e) { ss = null; }
+    return { sig: sig, ss: ss, se: se, type: el.type || '' };
+  }
+
+  var focusMem = null;
+  // 重绘前记一下焦点（render 开头调用；计时器到点结算这种「程序触发的重绘」也走同一个口子）
+  function rememberFocus() {
+    focusMem = focusSigOf(document.activeElement);
+  }
+  // 重绘后把焦点找回来，连带恢复光标位置
+  function restoreFocus() {
+    var mem = focusMem;
+    focusMem = null;
+    if (!mem || !document.querySelectorAll) return;
+    var list = document.querySelectorAll('input,select,textarea');
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i], ok = true;
+      for (var j = 0; j < mem.sig.length; j++) {
+        if (el.getAttribute(mem.sig[j][0]) !== mem.sig[j][1]) { ok = false; break; }
+      }
+      if (!ok) continue;
+      try {
+        el.focus();
+        // 数字框不支持 setSelectionRange（调了会抛 InvalidStateError），只给文本框恢复光标
+        if (mem.ss !== null && /^(text|search|url|tel|password)$/.test(mem.type)) {
+          el.setSelectionRange(mem.ss, mem.se);
+        }
+      } catch (e) { /* 框已经不可聚焦就算了，焦点丢了不影响数据 */ }
+      return;
+    }
+  }
+
+  /* 比分草稿：qa_/qb_/sa_/sb_/tsa_/tsb_ 这些框以前只在点按钮时才去读 DOM，
+     切个轮次或计时器到点重绘一下，填到一半的比分就没了。
+     现在边输入边存草稿，渲染时优先用草稿回填，结算成功后再清掉。
+     草稿挂在比赛的 __draft 上，但设成「不可枚举」—— JSON.stringify 看不见它，
+     所以 S.put / 导出存档都不会把这种临时状态带进存档。 */
+  function draftOf(m) {
+    if (!m) return null;
+    if (!m.__draft) {
+      try {
+        Object.defineProperty(m, '__draft', { value: {}, writable: true, enumerable: false, configurable: true });
+      } catch (e) { m.__draft = {}; }
+    }
+    return m.__draft;
+  }
+  function draftGet(m, k) {
+    var d = m && m.__draft;
+    if (!d || !Object.prototype.hasOwnProperty.call(d, k)) return null;   // null = 没草稿
+    return d[k];                                                          // '' = 用户清空了
+  }
+  function draftSet(m, k, v) {
+    var d = draftOf(m);
+    if (d) d[k] = (v === null || v === undefined) ? '' : String(v);
+  }
+  function draftClear(m) { if (m && m.__draft) m.__draft = {}; }
+
+  // 比赛索引 id -> match：render 时重建，计时器心跳 / 草稿回填直接查表，不再每次全表线性扫
+  var matchIndex = {};
+  function rebuildMatchIndex() {
+    matchIndex = {};
+    if (!T || !T.stages) return;
+    T.stages.forEach(function (st) {
+      (st.roundsData || []).forEach(function (rd) {
+        (rd.matches || []).forEach(function (m) { if (m && m.id) matchIndex[m.id] = m; });
+      });
+    });
+  }
+
+  /* 阶段独立积分规则：key 用 stage.id（以前用阶段下标，删一个阶段后面的规则就全串位）。
+     老存档里纯数字的 key 还能读：先按 id 找，找不到再退回下标。 */
+  function stageOvKeyOf(rule, stages, si) {
+    var ov = rule && rule.stageOv;
+    var st = (stages || [])[si];
+    var idk = (st && st.id) ? String(st.id) : '';
+    if (ov && idk && ov[idk] && typeof ov[idk] === 'object') return idk;
+    if (ov && ov[String(si)] && typeof ov[String(si)] === 'object') return String(si);
+    return idk || String(si);        // 新建设置时才用 id
+  }
+  function stageOvOf(rule, stages, si) {
+    var ov = rule && rule.stageOv;
+    if (!ov) return undefined;
+    return ov[stageOvKeyOf(rule, stages, si)];
+  }
+
+  /* 哪些数字字段「清空 = 0」是合法的（winNeeded=0 表示打满、floor=0、比分 0 等）。
+     不在这张白名单里的字段被清空时，一律保留原值，不要把空值偷偷写成 0。 */
+  var ZERO_OK_RE = /(^|\.)(winNeeded|setsToWin|deSplitTop|playSize|afterRound|winTarget|lossTarget|bonus|bonusPerEarly|count|perGroup|score|floor|step|pts|perGame|perWin|perDraw|perLoss|base|win|draw|lose|bye|yes|no|w|d|l)$/;
+
+  /* 数字框被清空时的统一处理：
+       白名单字段 = 0 是有意义的，就写 0；
+       其余字段清空后不写数据、把框回填成原值并提示一句，
+       否则「清空一格再点别处」会把它悄悄变成 0（比如获胜所需局数变 0 = 打满）。 */
+  function blankNumberRule(el, path, owner) {
+    if (ZERO_OK_RE.test(path)) return { ok: true, v: 0 };
+    var old = owner ? getPath(owner, path) : undefined;
+    el.value = (old === undefined || old === null) ? '' : old;
+    toast('这项不能为空，已保留原值', true);
+    return { ok: false };
+  }
+
+  // 写盘失败必须让用户看见：以前这里无视返回值，配额满了照样弹「已保存」，一刷新全丢
+  function save() {
+    if (!T) return false;
+    var ok = S.put(T);
+    if (!ok) toast(S.lastError || '保存失败', true);
+    return ok;
+  }
 
   // 阶段编辑后同步「独立局制 / 独立记分」与手动分组
   function afterStageEdit(stage, path) {
@@ -262,7 +385,8 @@
       var sid = (full && full.seasonId) || '';
       var sOpt = '<option value="">— 不归属 —</option>' +
         seasons.map(function (s) {
-          return '<option value="' + s.id + '"' + (s.id === sid ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+          // id 是拼进 value="" 属性里的，必须转义（存档可以被手工改过）
+          return '<option value="' + esc(s.id) + '"' + (s.id === sid ? ' selected' : '') + '>' + esc(s.name) + '</option>';
         }).join('');
       rows += '<tr>' +
         '<td><b>' + esc(m.name) + '</b></td>' +
@@ -270,14 +394,14 @@
         '<td class="num">' + m.stages + '</td>' +
         '<td>' + stTxt + '</td>' +
         '<td class="noprint" style="min-width:150px">' +
-        '<select data-season-t="' + m.id + '" style="height:28px;min-height:28px;font-size:12px">' +
+        '<select data-season-t="' + esc(m.id) + '" style="height:28px;min-height:28px;font-size:12px">' +
         sOpt + '</select></td>' +
         '<td class="mono">' + esc(m.updatedAt || m.createdAt || '') + '</td>' +
         '<td class="noprint">' +
-        '<button class="btn sm primary" data-act="openT" data-id="' + m.id + '">打开</button> ' +
-        '<button class="btn sm" data-act="dupT" data-id="' + m.id + '">复制</button> ' +
-        '<button class="btn sm" data-act="exportT" data-id="' + m.id + '">导出</button> ' +
-        '<button class="btn sm danger" data-act="delT" data-id="' + m.id + '">删除</button>' +
+        '<button class="btn sm primary" data-act="openT" data-id="' + esc(m.id) + '">打开</button> ' +
+        '<button class="btn sm" data-act="dupT" data-id="' + esc(m.id) + '">复制</button> ' +
+        '<button class="btn sm" data-act="exportT" data-id="' + esc(m.id) + '">导出</button> ' +
+        '<button class="btn sm danger" data-act="delT" data-id="' + esc(m.id) + '">删除</button>' +
         '</td></tr>';
     });
 
@@ -415,12 +539,6 @@
   /* ================= 赛事积分榜体系 =================
      积分规则定义在赛事里（每个名次 / 每个胜场值多少分），赛季页只做加总。
      同一套编辑器同时服务「赛事默认」和「某个阶段单独设置」。 */
-
-  function ptsTopKeys(rule) {
-    var top = (rule && rule.rank && rule.rank.top) || {};
-    return Object.keys(top).map(function (k) { return parseInt(k, 10); })
-      .filter(function (n) { return n >= 1; }).sort(function (a, b) { return a - b; });
-  }
 
   // 取档位表（旧规则没有 tiers 时用默认档位兜底）
   function ptsTiersOf(rule) {
@@ -578,7 +696,9 @@
         : '<b>注意：当前按整站计分，这里的给分方式要等「计分单元」改成「站内每个阶段各算一次」后才会生效。</b>') +
       '</div>';
     T.stages.forEach(function (s, si) {
-      var ov = (r.stageOv || {})[String(si)];
+      // 阶段独立规则以 stage.id 为 key（老的纯数字 key 由 stageOvKeyOf 退回兼容）
+      var ovKey = stageOvKeyOf(r, T.stages, si);
+      var ov = (r.stageOv || {})[ovKey];
       var open = (ptsStageOpen === si && ov);
       var stk = s.ptsStack || 'inherit';
       var stkTag = stk === 'reset' ? '<span class="tag inv">不叠加</span>'
@@ -593,7 +713,7 @@
         (ov ? '<button class="btn sm ghost" data-act="ptsStageReset" data-i="' + si + '">恢复默认</button>' : '') +
         '</div>';
       if (open) {
-        h += '<div class="sub-panel">' + ptsFormHTML('ptsRule.stageOv.' + si, ov, 1) + '</div>';
+        h += '<div class="sub-panel">' + ptsFormHTML('ptsRule.stageOv.' + ovKey, ov, 1) + '</div>';
       }
     });
     if (!T.stages.length) h += '<div class="hint">还没有阶段。</div>';
@@ -678,7 +798,8 @@
     h += '<div class="tbl-wrap"><table class="compact"><thead><tr>' + head + '</tr></thead><tbody>' +
       body + '</tbody></table></div>';
 
-    var ovs = Object.keys(rule.stageOv || {});
+    // 阶段是 id 作 key，老的数字 key 可能和 id key 同时存在 → 按阶段数一遍，免得重复计数
+    var ovCount = T.stages.filter(function (s, si) { return !!stageOvOf(rule, T.stages, si); }).length;
     h += '<div class="hint" style="margin-top:8px">' +
       (rule.mode === 'rank'
         ? ('名次分：' + (function () {
@@ -694,7 +815,7 @@
           ? ('晋级分：晋级到下一阶段 +' + U.fmt(rule.adv.yes) + '，没晋级 ' + U.fmt(rule.adv.no))
           : ('胜场分：每胜 +' + U.fmt(rule.win.perWin) + '，每平 +' + U.fmt(rule.win.perDraw) +
             '，每负 ' + U.fmt(rule.win.perLoss) + '，参赛基础 ' + U.fmt(rule.win.base)))) +
-      (ovs.length ? ('；另有 ' + ovs.length + ' 个阶段单独设置') : '') +
+      (ovCount ? ('；另有 ' + ovCount + ' 个阶段单独设置') : '') +
       '。分值在「赛事设置 → 赛事积分榜」里改。</div>';
     if (tp.warnings.length) {
       h += '<div class="notice inv" style="margin-top:10px">' + tp.warnings.map(esc).join('；') + '</div>';
@@ -720,11 +841,15 @@
     /* --- 基本信息 --- */
     h += card('基本信息',
       fld('赛事名称', inp('text', 'name', T.name, ' style="width:320px"')) +
-      '<div class="hint">随机种子：<span class="mono">' + T.seed + '</span>（决定抽签结果，存档后可复现）</div>'
+      '<div class="hint">随机种子：<span class="mono">' + esc(T.seed) + '</span>（决定抽签结果，存档后可复现）</div>'
     );
 
     /* --- 局制 --- */
     var sets = Math.max(1, parseInt(f.sets, 10) || 1);
+    // 团体赛的大比分是「赢下的场数」，回合数在团体赛里根本不起作用 ——
+    // 这里直接禁用输入框，免得用户以为填了会生效（disabled 的框也不会触发 change，不会误改数据）
+    var teamFmtOff = E.teamOn(T);
+    var setsDisabled = teamFmtOff ? ' min="1" max="99" disabled' : ' min="1" max="99"';
     var fmtBody =
       fld('每' + (sets > 1 ? '回合' : '场') + '比赛局数', inp('number', 'format.gamesPerMatch', f.gamesPerMatch, ' min="1"')) +
       fld('获胜所需局数', inp('number', 'format.winNeeded', f.winNeeded, ' min="0"'),
@@ -732,10 +857,13 @@
       fld('记录每局具体比分', inp('checkbox', 'format.recordScore', f.recordScore),
         '开启后录入时可填每局具体比分数字，供「按小分累加 / 自定义公式」使用。');
     fmtBody += '<h4>回合（局之上的一层）</h4>' +
-      fld('每场比赛回合数', inp('number', 'format.sets', sets, ' min="1" max="99"'),
-        '填 <b>1</b> = 不分回合（与以前完全一样）。填 <b>3</b> 就是「三场' +
-        '（每场' + f.gamesPerMatch + '局）决出这场胜负」。');
-    if (sets > 1) {
+      fld('每场比赛回合数', inp('number', 'format.sets', sets, setsDisabled),
+        teamFmtOff
+          ? '团体赛里这项<b>不生效</b>：团体赛的大比分 = 上场场数（赢下几场），' +
+            '这里的回合数只对个人赛生效。'
+          : '填 <b>1</b> = 不分回合（与以前完全一样）。填 <b>3</b> 就是「三场' +
+            '（每场' + f.gamesPerMatch + '局）决出这场胜负」。');
+    if (sets > 1 && !teamFmtOff) {
       fmtBody += '<div class="grid2">' +
         fld('这场怎么定胜负', sel('format.setRule', [
           { key: 'sets', name: '按赢下的回合数（默认）' },
@@ -1029,14 +1157,16 @@
     if (s.useFormat) {
       var sf = Object.assign(M.defaultFormat(), s.format || effF);
       var sSets = Math.max(1, parseInt(sf.sets, 10) || 1);
+      // 团体赛里「回合数」不生效（大比分 = 上场场数），禁用掉并把原因写在说明里
+      var sTeamOff = E.teamOn(T);
       h += '<div class="grid4">' +
         fld('每回合局数', inp('number', p + '.format.gamesPerMatch', sf.gamesPerMatch, ' min="1"')) +
         fld('获胜所需局数', inp('number', p + '.format.winNeeded', sf.winNeeded, ' min="0"')) +
-        fld('回合数', inp('number', p + '.format.sets', sSets, ' min="1" max="99"'),
-          '1 = 不分回合') +
+        fld('回合数', inp('number', p + '.format.sets', sSets, sTeamOff ? ' min="1" max="99" disabled' : ' min="1" max="99"'),
+          sTeamOff ? '团体赛不生效：大比分 = 上场场数，回合数只对个人赛生效' : '1 = 不分回合') +
         fld('记录每局比分', inp('checkbox', p + '.format.recordScore', sf.recordScore)) +
         '</div>';
-      if (sSets > 1) {
+      if (sSets > 1 && !sTeamOff) {
         h += '<div class="grid2">' +
           fld('本阶段怎么定胜负', sel(p + '.format.setRule', [
             { key: 'sets', name: '按赢下的回合数' },
@@ -1409,28 +1539,30 @@
 
     var rows = '';
     T.players.forEach(function (p, i) {
+      // p.id / seed / initialScore 都拼进了属性，统一过一遍 esc（存档可能被手改过，
+      // normalize 里的 id 白名单是第一道防线，这里是第二道）
       rows += '<tr>' +
         '<td class="num">' + (i + 1) + '</td>' +
-        '<td><input type="text" data-player="' + p.id + '" data-field="name" value="' + esc(p.name) + '" style="width:140px">' +
+        '<td><input type="text" data-player="' + esc(p.id) + '" data-field="name" value="' + esc(p.name) + '" style="width:140px">' +
         (p.isTeam ? '<span class="tag" style="margin-left:6px">队</span>' : '') + '</td>' +
-        '<td class="num"><input type="number" data-player="' + p.id + '" data-field="seed" value="' + p.seed + '" style="width:64px"></td>' +
-        '<td class="num"><input type="number" data-player="' + p.id + '" data-field="initialScore" value="' + p.initialScore + '" style="width:72px"></td>' +
+        '<td class="num"><input type="number" data-player="' + esc(p.id) + '" data-field="seed" value="' + esc(p.seed) + '" style="width:64px"></td>' +
+        '<td class="num"><input type="number" data-player="' + esc(p.id) + '" data-field="initialScore" value="' + esc(p.initialScore) + '" style="width:72px"></td>' +
         (multiStage ? '<td class="num">' +
-          '<select data-player="' + p.id + '" data-field="startStage" style="width:96px">' +
+          '<select data-player="' + esc(p.id) + '" data-field="startStage" style="width:96px">' +
           T.stages.map(function (s, si) {
             return '<option value="' + si + '"' + ((parseInt(p.startStage, 10) || 0) === si ? ' selected' : '') + '>' +
               esc(s.name) + '</option>';
           }).join('') + '</select></td>' : '') +
         (teamOn ? '<td>' + teamMembersHTML(p) + '</td>' : '') +
-        '<td><input type="text" data-player="' + p.id + '" data-field="note" value="' + esc(p.note) + '" style="width:110px"></td>' +
+        '<td><input type="text" data-player="' + esc(p.id) + '" data-field="note" value="' + esc(p.note) + '" style="width:110px"></td>' +
         '<td>' + (p.active === false ? '<b>' + esc(p.dropReason || '已退出') + '</b>' : '在赛') + '</td>' +
         '<td class="noprint">' +
-        (teamOn ? '<button class="btn sm" data-act="addMember" data-id="' + p.id + '">+ 队员</button>' : '') +
+        (teamOn ? '<button class="btn sm" data-act="addMember" data-id="' + esc(p.id) + '">+ 队员</button>' : '') +
         (p.active === false
-          ? '<button class="btn sm" data-act="restorePlayer" data-id="' + p.id + '">恢复</button>'
-          : '<button class="btn sm" data-act="dropPlayer" data-id="' + p.id + '">退赛</button>' +
-          '<button class="btn sm" data-act="dqPlayer" data-id="' + p.id + '">取消资格</button>') +
-        ' <button class="btn sm danger" data-act="delPlayer" data-id="' + p.id + '">删除</button>' +
+          ? '<button class="btn sm" data-act="restorePlayer" data-id="' + esc(p.id) + '">恢复</button>'
+          : '<button class="btn sm" data-act="dropPlayer" data-id="' + esc(p.id) + '">退赛</button>' +
+          '<button class="btn sm" data-act="dqPlayer" data-id="' + esc(p.id) + '">取消资格</button>') +
+        ' <button class="btn sm danger" data-act="delPlayer" data-id="' + esc(p.id) + '">删除</button>' +
         '</td></tr>';
       if (teamOn) rows += teamMemberDetailHTML(p);
     });
@@ -1473,8 +1605,8 @@
       ms.forEach(function (mb, mi) {
         h += '<div class="mitem">' +
           '<span class="mno">' + (mi + 1) + '</span>' +
-          '<input type="text" data-tmember="' + mb.id + '" data-team="' + p.id + '" value="' + esc(mb.name) + '">' +
-          '<button class="btn sm ghost" data-act="delMember" data-id="' + p.id + '" data-mid="' + mb.id + '">删除</button>' +
+          '<input type="text" data-tmember="' + esc(mb.id) + '" data-team="' + esc(p.id) + '" value="' + esc(mb.name) + '">' +
+          '<button class="btn sm ghost" data-act="delMember" data-id="' + esc(p.id) + '" data-mid="' + esc(mb.id) + '">删除</button>' +
           '</div>';
       });
       h += '</div>';
@@ -1484,12 +1616,6 @@
   }
 
   /* ================= 视图三：对阵与录入 ================= */
-
-  function groupName(stage, gi) {
-    if (gi === null || gi === undefined) return '';
-    if (stage.groups && stage.groups[gi]) return stage.groups[gi].name;
-    return '第 ' + (gi + 1) + ' 组';
-  }
 
   // 某一桌可选的选手
   function slotOptions(stage, rd, m) {
@@ -1508,7 +1634,7 @@
   function slotSelect(stage, rd, m, slot) {
     var cur = (slot === 'A') ? m.playerA : m.playerB;
     var used = E.roundPool(rd);
-    var h = '<select data-pair="' + m.id + '" data-slot="' + slot + '" style="width:100%">' +
+    var h = '<select data-pair="' + esc(m.id) + '" data-slot="' + slot + '" style="width:100%">' +
       '<option value="">（空 / 轮空）</option>';
     slotOptions(stage, rd, m).forEach(function (id) {
       var other = (id !== cur) && (used.indexOf(id) >= 0);
@@ -1538,7 +1664,8 @@
     var gi = null, list = [];
     if (stage && stage.type === 'groups') {
       var gs = stage.groups || [];
-      var pend = E.groupArrangePending(stage);
+      // 第二个参数 T 是新的签名：让引擎把退赛 / 提前晋级的人排除掉，不然会列出一堆排不满的组
+      var pend = E.groupArrangePending(stage, T);
       list = gs.map(function (g, i) {
         var c = E.canManualArrange(T, stage, null, { groupIdx: i });
         var hit = pend.filter(function (y) { return y.idx === i; })[0];
@@ -1697,7 +1824,7 @@
         h += '<tr><td class="num">' + (i + 1) + '</td>' +
           '<td>' + slotSelect(stage, ctx.rd, m, 'A') + '</td>' +
           '<td>' + slotSelect(stage, ctx.rd, m, 'B') + '</td>' +
-          '<td class="noprint"><button class="btn sm danger" data-act="delTable" data-id="' + m.id + '">删除</button></td></tr>';
+          '<td class="noprint"><button class="btn sm danger" data-act="delTable" data-id="' + esc(m.id) + '">删除</button></td></tr>';
       });
       h += '</tbody></table></details>';
     }
@@ -1809,7 +1936,7 @@
       var p = playerOf(id);
       h += '<tr><td class="num">' + (idx + 1) + '</td><td><b>' + esc(p.name) + '</b></td>' +
         '<td class="num">' + (p.seed || '—') + '</td><td>' +
-        '<select data-member="' + id + '">' +
+        '<select data-member="' + esc(id) + '">' +
         stage.groups.map(function (g, i) {
           return '<option value="' + i + '"' + (giOf[id] === i ? ' selected' : '') + '>' + esc(g.name) + '</option>';
         }).join('') +
@@ -2160,23 +2287,32 @@
    */
   function quickEntryHTML(m, c) {
     if (c.readonly || m.isBye) return '';
+    var mid = esc(m.id);           // 要拼进 id= / data-id=，先转义
     var gy = m.games || [];
-    var undo = '<button class="btn sm ghost" data-act="undoGame" data-id="' + m.id + '"' +
+    var undo = '<button class="btn sm ghost" data-act="undoGame" data-id="' + mid + '"' +
       (gy.length ? '' : ' disabled') + '>撤销上局</button>';
 
     /* 已结束的比赛也要留「比分 + 结算」：这就是改判入口 */
     var h2 = '<span class="mquick noprint' + (m.decided ? ' done' : '') + '">';
     var sc = c.sc, fmt = c.fmt;
     var S = E.setCount(fmt);
+    // curSet 可能 >= 规定回合数：那是「加赛回合」（v2.6.1 引擎已经会返回额外那一回合），
+    // 标签必须写清楚，否则看着像回合数算错了
     var curSetNo = S > 1 ? E.curSet(m, fmt, c.stage.tie) : 0;
     var setNow = S > 1 ? E.progressSet(m, curSetNo) : null;
+    var setLbl = S > 1 ? ((curSetNo >= S ? '加赛回合' : '回合') + (curSetNo + 1)) : '';
+    // 草稿优先：用户填到一半的比分不能被一次重绘抹掉
+    var dA = draftGet(m, 'a'), dB = draftGet(m, 'b');
+    var dSa = draftGet(m, 'sa'), dSb = draftGet(m, 'sb');
 
     // 需要逐局小分时（按小分累加 / 记录每局比分），先给「本局比分」
     if (sc.mode === 'points' || fmt.recordScore) {
-      h2 += '<span class="bscg"><span class="qlabel">' + (S > 1 ? ('回合' + (curSetNo + 1) + ' 本局') : '本局') + '</span>' +
-        '<input class="inline-num" type="number" min="0" id="sa_' + m.id + '" placeholder="A">' +
+      h2 += '<span class="bscg"><span class="qlabel">' + (S > 1 ? (setLbl + ' 本局') : '本局') + '</span>' +
+        '<input class="inline-num" type="number" min="0" id="sa_' + mid + '"' +
+        ' value="' + esc(dSa === null ? '' : dSa) + '" placeholder="A">' +
         '<span class="qcolon">:</span>' +
-        '<input class="inline-num" type="number" min="0" id="sb_' + m.id + '" placeholder="B"></span>';
+        '<input class="inline-num" type="number" min="0" id="sb_' + mid + '"' +
+        ' value="' + esc(dSb === null ? '' : dSb) + '" placeholder="B"></span>';
     }
     if (sc.mode !== 'points') {
       var W = Math.max(0, parseInt(fmt.winNeeded, 10) || 0);
@@ -2186,20 +2322,22 @@
         var needG = W > 0 ? W : (Math.floor(N / 2) + 1);
         capA = needG - (c.advA || 0); capB = needG - (c.advB || 0);
       }
-      h2 += '<span class="bscg"><span class="qlabel">' + (S > 1 ? ('回合' + (curSetNo + 1)) : '比分') + '</span>' +
-        '<input class="inline-num" type="number" min="0" max="' + capA + '" id="qa_' + m.id + '"' +
-        ' value="' + (setNow ? (setNow.a || '') : (gy.length ? (c.r.gamesA || 0) : '')) + '" placeholder="0">' +
+      var valA = (dA !== null) ? dA : (setNow ? (setNow.a || '') : (gy.length ? (c.r.gamesA || 0) : ''));
+      var valB = (dB !== null) ? dB : (setNow ? (setNow.b || '') : (gy.length ? (c.r.gamesB || 0) : ''));
+      h2 += '<span class="bscg"><span class="qlabel">' + (S > 1 ? setLbl : '比分') + '</span>' +
+        '<input class="inline-num" type="number" min="0" max="' + capA + '" id="qa_' + mid + '"' +
+        ' value="' + esc(valA) + '" placeholder="0">' +
         '<span class="qcolon">:</span>' +
-        '<input class="inline-num" type="number" min="0" max="' + capB + '" id="qb_' + m.id + '"' +
-        ' value="' + (setNow ? (setNow.b || '') : (gy.length ? (c.r.gamesB || 0) : '')) + '" placeholder="0"></span>';
-      h2 += '<button class="btn sm primary" data-act="applyScore" data-id="' + m.id + '">结算</button>';
+        '<input class="inline-num" type="number" min="0" max="' + capB + '" id="qb_' + mid + '"' +
+        ' value="' + esc(valB) + '" placeholder="0"></span>';
+      h2 += '<button class="btn sm primary" data-act="applyScore" data-id="' + mid + '">结算</button>';
     }
     h2 += '<span class="bmtn">' +
-      '<button class="btn sm" data-act="addGame" data-id="' + m.id + '" data-w="A"' +
+      '<button class="btn sm" data-act="addGame" data-id="' + mid + '" data-w="A"' +
       (c.canAdd ? '' : ' disabled') + ' title="让 ' + esc(c.na) + ' 拿下这一局">A 胜</button>' +
-      '<button class="btn sm" data-act="addGame" data-id="' + m.id + '" data-w="B"' +
+      '<button class="btn sm" data-act="addGame" data-id="' + mid + '" data-w="B"' +
       (c.canAdd ? '' : ' disabled') + ' title="让 ' + esc(c.nb) + ' 拿下这一局">B 胜</button>' +
-      '<button class="btn sm" data-act="addGame" data-id="' + m.id + '" data-w="D"' +
+      '<button class="btn sm" data-act="addGame" data-id="' + mid + '" data-w="D"' +
       (c.canAdd ? '' : ' disabled') + ' title="这一局平局">平</button>' +
       undo + '</span>';
     return h2 + '</span>';
@@ -2233,7 +2371,7 @@
       var sd = (side === 'a') ? 'A' : 'B';
       var teamId = (sd === 'A') ? m.playerA : m.playerB;
       var list = E.teamEligible(T, m, sd, si);
-      var id = 'ts' + side + '_' + m.id + '_' + si;
+      var id = 'ts' + side + '_' + esc(m.id) + '_' + si;
       var opts = '<option value="">— 选队员 —</option>', found = false;
       list.forEach(function (mb) {
         if (cur === mb.id) found = true;
@@ -2242,7 +2380,7 @@
       if (cur && !found) {
         opts = '<option value="' + esc(cur) + '" selected>' + esc(memberName(teamId, cur)) + '</option>' + opts;
       }
-      return '<select class="tt-pl" id="' + id + '" data-tslot="' + side + '" data-id="' + m.id +
+      return '<select class="tt-pl" id="' + id + '" data-tslot="' + side + '" data-id="' + esc(m.id) +
         '" data-s="' + si + '"' + (ro ? ' disabled' : '') + '>' + opts + '</select>';
     }
 
@@ -2259,8 +2397,8 @@
       '　每场打 ' + bf.gamesPerMatch + ' 局' + (bf.winNeeded > 0 ? '，先赢 ' + bf.winNeeded + ' 局' : '，打满') + '</span>';
     if (!ro && !decided) {
       h += '<span class="tt-tools">' +
-        '<button class="btn sm ghost" data-act="autoLineup" data-id="' + m.id + '">按名单排阵</button>' +
-        '<button class="btn sm ghost" data-act="clearLineup" data-id="' + m.id + '">清空未打的</button>' +
+        '<button class="btn sm ghost" data-act="autoLineup" data-id="' + esc(m.id) + '">按名单排阵</button>' +
+        '<button class="btn sm ghost" data-act="clearLineup" data-id="' + esc(m.id) + '">清空未打的</button>' +
         '</span>';
     }
     h += '</div>';
@@ -2292,30 +2430,34 @@
           '<span class="tt-b">' + esc(memberName(m.playerB, g.pb)) + '</span>' +
           '<span class="tt-w">' + esc(wtxt) + '</span>' +
           (ro || decided ? '' : '<span class="tt-x"><button class="btn sm ghost" data-act="undoBoard" data-id="' +
-            m.id + '" data-s="' + i + '">撤销</button></span>') +
+            esc(m.id) + '" data-s="' + i + '">撤销</button></span>') +
           '</div>';
         continue;
       }
       /* 未打完：排阵 + 录成绩 */
       var canRec = !ro && !decided && (nvn ? ready : true);
       var noTxt = (i >= total) ? ('加赛 · 第 ' + (i + 1) + ' 场') : ('第 ' + (i + 1) + ' 场');
+      // 这一场的局分也走草稿：重绘（切轮次 / 计时器到点）不该把填了一半的比分清掉
+      var dgA = draftGet(m, 'tg:' + i + ':a'), dgB = draftGet(m, 'tg:' + i + ':b');
       h += '<div class="tt-row' + (i === done ? ' cur' : '') + '">' +
         '<span class="tt-n">' + noTxt + '</span>' +
         selSide(i, 'a', pl.a) +
         '<span class="tt-vs">vs</span>' +
         selSide(i, 'b', pl.b) +
         '<span class="tt-sc">' +
-        '<input class="inline-num" type="number" min="0" max="' + cap + '" id="tg_' + m.id + '_' + i + '_a" placeholder="A"' + (ro ? ' disabled' : '') + '>' +
+        '<input class="inline-num" type="number" min="0" max="' + cap + '" id="tg_' + esc(m.id) + '_' + i + '_a"' +
+        ' value="' + esc(dgA === null ? '' : dgA) + '" placeholder="A"' + (ro ? ' disabled' : '') + '>' +
         '<span class="qcolon">:</span>' +
-        '<input class="inline-num" type="number" min="0" max="' + cap + '" id="tg_' + m.id + '_' + i + '_b" placeholder="B"' + (ro ? ' disabled' : '') + '>' +
+        '<input class="inline-num" type="number" min="0" max="' + cap + '" id="tg_' + esc(m.id) + '_' + i + '_b"' +
+        ' value="' + esc(dgB === null ? '' : dgB) + '" placeholder="B"' + (ro ? ' disabled' : '') + '>' +
         '</span>' +
         (ro || decided ? '' :
           '<span class="tt-btn">' +
-          '<button class="btn sm primary" data-act="addBoard" data-id="' + m.id + '" data-s="' + i + '" data-w="A"' +
+          '<button class="btn sm primary" data-act="addBoard" data-id="' + esc(m.id) + '" data-s="' + i + '" data-w="A"' +
           (canRec ? '' : ' disabled') + ' title="让 ' + esc(na) + ' 赢下第 ' + (i + 1) + ' 场">' + esc(short(na)) + ' 胜</button>' +
-          '<button class="btn sm" data-act="addBoard" data-id="' + m.id + '" data-s="' + i + '" data-w="B"' +
+          '<button class="btn sm" data-act="addBoard" data-id="' + esc(m.id) + '" data-s="' + i + '" data-w="B"' +
           (canRec ? '' : ' disabled') + ' title="让 ' + esc(nb) + ' 赢下第 ' + (i + 1) + ' 场">' + esc(short(nb)) + ' 胜</button>' +
-          (canDraw ? '<button class="btn sm" data-act="addBoard" data-id="' + m.id + '" data-s="' + i + '" data-w="D"' +
+          (canDraw ? '<button class="btn sm" data-act="addBoard" data-id="' + esc(m.id) + '" data-s="' + i + '" data-w="D"' +
             (canRec ? '' : ' disabled') + '>平</button>' : '') +
           '</span>') +
         '</div>';
@@ -2390,9 +2532,15 @@
         var tsx = E.teamScore(T, m);
         statusTxt = '进行中 ' + tsx.done + '/' + tsx.tables + ' 场（' + tsx.winsA + ':' + tsx.winsB + '）';
       } else {
-        statusTxt = S > 1
-          ? ('进行中 · 第 ' + (E.curSet(m, fmt, stage.tie) + 1) + '/' + S + ' 回合')
-          : ('进行中 ' + (m.games || []).length + '/' + E.matchMaxGames(m, fmt) + ' 局');
+        // 多回合：加赛回合要单独说明（curSet 会越过规定回合数）
+        var curS1 = E.curSet(m, fmt, stage.tie);
+        if (S > 1) {
+          statusTxt = curS1 >= S
+            ? ('进行中 · 加赛回合 ' + (curS1 + 1) + '（规定 ' + S + ' 回合未分胜负）')
+            : ('进行中 · 第 ' + (curS1 + 1) + '/' + S + ' 回合');
+        } else {
+          statusTxt = '进行中 ' + (m.games || []).length + '/' + E.matchMaxGames(m, fmt) + ' 局';
+        }
       }
     }
     if (m.override) statusTxt += '（手动指定）';
@@ -2443,7 +2591,7 @@
     var openTxt = openMore[m.id] ? '收起' : '明细';
     h += '<span class="mact noprint">' +
       (m.isBye ? '' : '<button class="btn sm' + (m.decided ? '' : ' ghost') + '" data-act="toggleMore" data-id="' +
-        m.id + '" data-decided="' + (m.decided ? '1' : '0') + '">' + openTxt + '</button>') +
+        esc(m.id) + '" data-decided="' + (m.decided ? '1' : '0') + '">' + openTxt + '</button>') +
       '</span>';
     h += '</div>';
 
@@ -2480,7 +2628,11 @@
       var lastS = -1;
       gy.forEach(function (game, i) {
         var si = parseInt(game.s, 10) || 0;
-        if (S > 1 && si !== lastS) { g += '<span class="setsep">回合 ' + (si + 1) + '</span>'; lastS = si; }
+        // 加赛回合（序号越过规定回合数）要在明细分隔上标出来
+        if (S > 1 && si !== lastS) {
+          g += '<span class="setsep">' + (si >= S ? ('加赛回合 ' + (si + 1)) : ('回合 ' + (si + 1))) + '</span>';
+          lastS = si;
+        }
         var s = game.w === 'A' ? ('A 胜 ' + na) : (game.w === 'B' ? ('B 胜 ' + nb) : '平局');
         if (typeof game.a === 'number' && typeof game.b === 'number') s += ' (' + game.a + ':' + game.b + ')';
         g += '<span class="gamechip">G' + (i + 1) + ' ' + esc(s) + '</span>';
@@ -2492,12 +2644,14 @@
     /* ---- 回合进度条 ---- */
     if (S > 1) {
       var curS0 = E.curSet(m, fmt, stage.tie);
+      // 已经打到加赛时，超过规定回合数的那一格也要显示出来，不然进度条像卡住了
+      var setTotal = Math.max(S, E.setMaxIndex(m) + 1, curS0 + 1);
       h += '<div class="setbar">';
-      for (var si2 = 0; si2 < S; si2++) {
+      for (var si2 = 0; si2 < setTotal; si2++) {
         var sp = E.progressSet(m, si2);
         var sw = E.setWinnerOf(m, si2, fmt, stage.tie);
-        h += '<span class="setchip' + (sw ? ' done' : '') + (si2 === curS0 ? ' cur' : '') + '">' +
-          '回合 ' + (si2 + 1) + ' <b>' + sp.a + ':' + sp.b + '</b>' +
+        h += '<span class="setchip' + (sw ? ' done' : '') + (si2 === curS0 ? ' cur' : '') + (si2 >= S ? ' over' : '') + '">' +
+          (si2 >= S ? ('加赛回合 ' + (si2 + 1)) : ('回合 ' + (si2 + 1))) + ' <b>' + sp.a + ':' + sp.b + '</b>' +
           (sw ? ' · ' + (sw === 'A' ? esc(na) : esc(nb)) + ' 胜' : '') + '</span>';
       }
       h += '</div>';
@@ -2505,7 +2659,8 @@
         fmt.gamesPerMatch + ' 局' + (fmt.winNeeded > 0 ? '（先赢 ' + fmt.winNeeded + ' 局）' : '（打满）') +
         '；判定依据：' + (fmt.setRule === 'points' ? '总得分' : (fmt.setRule === 'games' ? '总大比分' : '赢下回合数')) +
         (fmt.setRule === 'sets' ? '（先赢 ' + E.setsNeeded(fmt) + ' 回合）' : '') +
-        '。录入自动记到当前回合。</div>';
+        '。录入自动记到当前回合' +
+        (curS0 >= S ? '（规定回合打完仍未分胜负，现在是<b>加赛回合</b>）' : '') + '。</div>';
     }
 
     if (REND_RO) {                      // 旧阶段只读
@@ -2514,14 +2669,14 @@
     }
 
     /* ---- 录入已全部移到行右侧的快捷区；这里只留「指定晋级」这类低频操作 ---- */
-    if (isElimStage(stage) && m.decided && r.winner === null) {
+    if (isElimRun(stage) && m.decided && r.winner === null) {
       h += '<div class="quickrow noprint">' +
-        '<button class="btn sm" data-act="override" data-id="' + m.id + '" data-w="A">指定 ' + esc(na) + ' 晋级</button>' +
-        '<button class="btn sm" data-act="override" data-id="' + m.id + '" data-w="B">指定 ' + esc(nb) + ' 晋级</button>' +
+        '<button class="btn sm" data-act="override" data-id="' + esc(m.id) + '" data-w="A">指定 ' + esc(na) + ' 晋级</button>' +
+        '<button class="btn sm" data-act="override" data-id="' + esc(m.id) + '" data-w="B">指定 ' + esc(nb) + ' 晋级</button>' +
         '</div>';
     }
     if (m.override) {
-      h += '<div class="quickrow noprint"><button class="btn sm" data-act="clearOverride" data-id="' + m.id + '">取消指定</button></div>';
+      h += '<div class="quickrow noprint"><button class="btn sm" data-act="clearOverride" data-id="' + esc(m.id) + '">取消指定</button></div>';
     }
 
     /* ---- 警告 / 判负（v2.3）：计入小分，先比判负、再比警告 ---- */
@@ -2565,11 +2720,12 @@
     var now = Date.now();
     var st = E.tmState(m, now);
     var limit = st.on ? st.limit : E.tmLimitSec(T);
+    var mid = esc(m.id);            // m.id 会拼进 data-tm / data-id，先转义
     var h = '<div class="tmrow">';
     var txt = st.on ? U.clock(st.remain) : U.clock(limit);
     var cls = 'tmclock' + (st.running ? ' run' : '') +
       ((st.expired && !m.decided) ? ' expired' : '') + (st.on ? '' : ' off');
-    h += '<span class="' + cls + '" data-tm="' + m.id + '">' + esc(txt) + '</span>';
+    h += '<span class="' + cls + '" data-tm="' + mid + '">' + esc(txt) + '</span>';
     var tip = st.on
       ? (m.decided ? '已收场' : (st.running ? '计时中' : (st.expired ? '已到点' : '已暂停')))
       : ('限时 ' + U.clock(limit));
@@ -2577,17 +2733,17 @@
     h += '<span class="hint">' + esc(tip) + '</span>';
     if (!m.decided) {
       if (!st.on) {
-        h += '<button class="btn sm" data-act="tmStart" data-id="' + m.id + '">开始计时</button>';
+        h += '<button class="btn sm" data-act="tmStart" data-id="' + mid + '">开始计时</button>';
       } else if (st.running) {
-        h += '<button class="btn sm" data-act="tmPause" data-id="' + m.id + '">暂停</button>';
+        h += '<button class="btn sm" data-act="tmPause" data-id="' + mid + '">暂停</button>';
       } else {
-        h += '<button class="btn sm" data-act="tmStart" data-id="' + m.id + '">继续</button>';
+        h += '<button class="btn sm" data-act="tmStart" data-id="' + mid + '">继续</button>';
       }
-      h += '<button class="btn sm lowpr" data-act="tmAdd" data-id="' + m.id + '" data-min="5">+5 分钟</button>' +
-        '<button class="btn sm lowpr" data-act="tmReset" data-id="' + m.id + '">归零</button>' +
-        '<button class="btn sm danger' + (st.expired && !m.decided ? '' : ' lowpr') + '" data-act="tmSettle" data-id="' + m.id + '">按未打完结算</button>';
+      h += '<button class="btn sm lowpr" data-act="tmAdd" data-id="' + mid + '" data-min="5">+5 分钟</button>' +
+        '<button class="btn sm lowpr" data-act="tmReset" data-id="' + mid + '">归零</button>' +
+        '<button class="btn sm danger' + (st.expired && !m.decided ? '' : ' lowpr') + '" data-act="tmSettle" data-id="' + mid + '">按未打完结算</button>';
     } else if (m.result && m.result.unfinished) {
-      h += '<button class="btn sm" data-act="tmUndoFinish" data-id="' + m.id + '">撤销未打完</button>';
+      h += '<button class="btn sm" data-act="tmUndoFinish" data-id="' + mid + '">撤销未打完</button>';
     }
     h += '</div>';
     return h;
@@ -2601,19 +2757,6 @@
     return null;
   }
   function rd_isGF(rd) { return !!(rd && rd.isGF); }
-
-  function isElimStage(stage) {
-    return stage.type === 'single_elim' || stage.type === 'double_elim' ||
-      (stage.type === 'groups' && stage.groupType === 'single_elim');
-  }
-
-  function subOf(id) {
-    var p = playerOf(id);
-    var s = [];
-    if (p.seed) s.push('种子 ' + p.seed);
-    if (p.initialScore) s.push('初始分 ' + p.initialScore);
-    return s.join(' · ') || '—';
-  }
 
   function statusText(stage) {
     if (stage.status === 'finished') return '已结束';
@@ -2997,8 +3140,22 @@
     return bare ? h : card('对阵图（' + esc(titleFmt) + '）', h);
   }
 
+  /* 淘汰赛阶段：单败 / 双败。
+     注意这里**只认顶层赛制**：小组赛（哪怕组内打淘汰）在排名/导出页要走「小组 + 排名表」那套，
+     不能当整棵对阵树渲染（否则会出现空的对阵图）。
+     以前这个函数有两份定义，前一份还认「小组赛+组内淘汰」，结果被后面那份覆盖、等于白写；
+     现在只留这一份，组内淘汰该显示的东西由 isElimRun 单独判断。 */
   function isElimStage(st) {
-    return !!st && (st.type === 'single_elim' || st.type === 'double_elim');
+    if (!st) return false;
+    return st.type === 'single_elim' || st.type === 'double_elim';
+  }
+
+  /* 「这一场是淘汰赛性质」—— 含「小组赛但组内打淘汰」。
+     只用于跟单场有关的判断（例如平局时要不要给「指定 A/B 晋级」按钮）。 */
+  function isElimRun(st) {
+    if (!st) return false;
+    if (st.type === 'single_elim' || st.type === 'double_elim') return true;
+    return st.type === 'groups' && (st.groupType === 'single_elim' || st.groupType === 'double_elim');
   }
 
   // 淘汰赛导出：对阵图 + 一行名次小结（v2.5：淘汰赛不再导出排名表）
@@ -3125,8 +3282,8 @@
         '<td class="num">' + U.fmt(s.buchholz) + '</td>' +
         '<td>' + esc(status.join(' / ')) + '</td>' +
         '<td class="noprint">' +
-        '<button class="btn sm" data-act="moveUp" data-stage="' + si + '" data-id="' + s.id + '"' + (idx === 0 ? ' disabled' : '') + '>上</button>' +
-        '<button class="btn sm" data-act="moveDown" data-stage="' + si + '" data-id="' + s.id + '"' + (idx === st.length - 1 ? ' disabled' : '') + '>下</button>' +
+        '<button class="btn sm" data-act="moveUp" data-stage="' + si + '" data-id="' + esc(s.id) + '"' + (idx === 0 ? ' disabled' : '') + '>上</button>' +
+        '<button class="btn sm" data-act="moveDown" data-stage="' + si + '" data-id="' + esc(s.id) + '"' + (idx === st.length - 1 ? ' disabled' : '') + '>下</button>' +
         '</td>' +
         '</tr>';
     });
@@ -3273,9 +3430,9 @@
         '<td>' + esc(lead) + '</td>' +
         '<td class="mono" style="font-size:12px">' + esc(m.createdAt || '') + '</td>' +
         '<td class="noprint">' +
-        '<button class="btn sm primary" data-act="openSeason" data-id="' + m.id + '">打开</button> ' +
-        '<button class="btn sm" data-act="renameSeason" data-id="' + m.id + '">重命名</button> ' +
-        '<button class="btn sm danger" data-act="delSeason" data-id="' + m.id + '">删除</button>' +
+        '<button class="btn sm primary" data-act="openSeason" data-id="' + esc(m.id) + '">打开</button> ' +
+        '<button class="btn sm" data-act="renameSeason" data-id="' + esc(m.id) + '">重命名</button> ' +
+        '<button class="btn sm danger" data-act="delSeason" data-id="' + esc(m.id) + '">删除</button>' +
         '</td></tr>';
     });
 
@@ -3750,7 +3907,7 @@
         h += '<div class="unit-row">' +
           seasonStatusTag(u ? u.status : (t.status === 'finished' ? 'finished' : 'running')) +
           '<span class="uname" title="' + esc(t.name) + '">' + esc(t.name) + '</span>' +
-          '<button class="btn sm ghost" data-act="seasonRemove" data-id="' + t.id + '">移出</button>' +
+          '<button class="btn sm ghost" data-act="seasonRemove" data-id="' + esc(t.id) + '">移出</button>' +
           ptsLine +
           '</div>';
       });
@@ -3761,7 +3918,7 @@
       h += '<div class="row" style="margin-top:10px">' +
         '<select id="seasonAddT" style="flex:1;min-width:0">' +
         notIn.map(function (t) {
-          return '<option value="' + t.id + '">' + esc(t.name) + '</option>';
+          return '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>';
         }).join('') +
         '</select>' +
         '<button class="btn" data-act="seasonAdd">加入</button></div>';
@@ -3837,6 +3994,9 @@
 
   function render() {
     TMS.current = T;
+    // 全量重绘前先记住焦点是谁：改一个字段就整页重绘，焦点要是丢了，
+    // 接着敲键盘等于打到空气里（Tab 继续填表尤其明显）
+    rememberFocus();
 
     var sub = document.getElementById('topbarSub');
     if (sub) {
@@ -3867,6 +4027,9 @@
     var el = document.getElementById('view-' + curView);
     if (el) { el.style.display = ''; el.innerHTML = map[curView](); }
 
+    // 每渲染一次重建比赛索引（计时器心跳、草稿回填直接查表，不用再全表线性扫）
+    rebuildMatchIndex();
+
     // 一跳到位：从赛季页跳过来时，把目标卡片滚进视野并闪一下
     if (scrollTarget) {
       var tg = document.getElementById(scrollTarget);
@@ -3877,6 +4040,9 @@
         setTimeout(function () { tg.classList.remove('flash-once'); }, 1600);
       }
     }
+
+    // 重绘完成，把焦点和光标位置交还给用户原来那个框
+    restoreFocus();
   }
 
   /* ================= 交互 ================= */
@@ -3887,7 +4053,7 @@
     T = t; S.setCurrentId(id); TMS.current = T;
     editStage = 0;
     stView = { stageIndex: T.currentStage || 0, groupIdx: -1, bracketMerged: true };
-    showHistory = false; arrangeOn = false; slotOn = false; slotDraft = null;
+    arrangeOn = false; slotOn = false; slotDraft = null;
     arrGroupIdx = -1; viewRound = -1; viewStageIdx = -1;
     exSel = { stage: T.currentStage || 0, round: -1, group: -1 };
     return true;
@@ -3908,8 +4074,11 @@
       var name = (el && el.value.trim()) || '我的赛事';
       T = M.createTournament(name);
       S.put(T);
+      // S.put 不再顺手改「当前赛事」指针（v2.6.1），新建后必须自己设一次，
+      // 否则刷新页面会打开上一场赛事，新建的这一场像是丢了
+      S.setCurrentId(T.id);
       TMS.current = T;
-      editStage = 0; stView = { stageIndex: 0, groupIdx: -1, bracketMerged: true }; showHistory = false; arrangeOn = false; slotOn = false; slotDraft = null; arrGroupIdx = -1; viewRound = -1; viewStageIdx = -1; exSel = { stage: 0, round: -1, group: -1 };
+      editStage = 0; stView = { stageIndex: 0, groupIdx: -1, bracketMerged: true }; arrangeOn = false; slotOn = false; slotDraft = null; arrGroupIdx = -1; viewRound = -1; viewStageIdx = -1; exSel = { stage: 0, round: -1, group: -1 };
       curView = 'setup'; render();
       toast('已新建赛事：' + name);
     },
@@ -3960,7 +4129,11 @@
     goList: function () { curView = 'list'; render(); },
 
     /* ---- 存档 ---- */
-    saveT: function () { save(); toast('已保存到本机'); },
+    saveT: function () {
+      // 按真实写盘结果提示：写盘失败时 save() 已经弹过「本机存储空间已满…」，
+      // 这里就不要再补一句「已保存到本机」把人骗过去了
+      if (save()) toast('已保存到本机');
+    },
     loadT: function () { pendingFileAction = 'json'; document.getElementById('fileInput').click(); },
 
     /* ---- 选手 ---- */
@@ -4287,6 +4460,8 @@
         }
         m.override = null;
         E.evaluate(m, fmt, stage.tie);
+        // 已经落到 games 里了，草稿再留着只会在下次重绘时把旧值又填回来
+        draftClear(m);
 
         if (m.overtime) {
           return { ok: true, msg: '比分为 ' + a + ' : ' + b + '，属平局，按规则需加赛决胜' };
@@ -4320,12 +4495,19 @@
         if (!E.canAddGame(m, fmt, stage.tie)) return { ok: false, msg: '本场已结束，无法继续录入' };
         var g = { w: w, a: null, b: null, s: E.setCount(fmt) > 1 ? E.curSet(m, fmt, stage.tie) : 0 };
         if (fmt.recordScore) {
+          // 优先取草稿（重绘后 DOM 里的值也是从草稿回填的，两者一致；草稿更保险）
           var ia = document.getElementById('sa_' + m.id), ib = document.getElementById('sb_' + m.id);
-          if (ia && ia.value !== '') g.a = parseFloat(ia.value);
-          if (ib && ib.value !== '') g.b = parseFloat(ib.value);
+          var da = draftGet(m, 'sa'), db = draftGet(m, 'sb');
+          var va = (ia && ia.value !== '') ? ia.value : da;
+          var vb = (ib && ib.value !== '') ? ib.value : db;
+          if (va !== null && va !== '') g.a = parseFloat(va);
+          if (vb !== null && vb !== '') g.b = parseFloat(vb);
         }
         m.games.push(g);
         E.evaluate(m, fmt, stage.tie);
+        // 这一局的比分已经进 games，只清掉本局小分的草稿（qa/qb 的草稿留着，用户可能还要结算）
+        var dg = draftOf(m);
+        if (dg) { delete dg.sa; delete dg.sb; }
         return { ok: true };
       });
     },
@@ -4365,8 +4547,11 @@
         }
         var ga = document.getElementById('tg_' + m.id + '_' + si + '_a');
         var gb = document.getElementById('tg_' + m.id + '_' + si + '_b');
-        var a = ga && ga.value !== '' ? parseFloat(ga.value) : null;
-        var b = gb && gb.value !== '' ? parseFloat(gb.value) : null;
+        var dga = draftGet(m, 'tg:' + si + ':a'), dgb = draftGet(m, 'tg:' + si + ':b');
+        var av = (ga && ga.value !== '') ? ga.value : dga;
+        var bv = (gb && gb.value !== '') ? gb.value : dgb;
+        var a = (av !== null && av !== '') ? parseFloat(av) : null;
+        var b = (bv !== null && bv !== '') ? parseFloat(bv) : null;
         var bf = E.boardFmtOf(T, stage);
         var cap = bf.winNeeded > 0 ? bf.winNeeded : bf.gamesPerMatch;
         if (a !== null && (isNaN(a) || a < 0 || a > cap)) return { ok: false, msg: '这一场的局分上限是 ' + cap + ' 局' };
@@ -4379,6 +4564,9 @@
         m.games.push(g);
         m.games.sort(function (x, y) { return (parseInt(x.s, 10) || 0) - (parseInt(y.s, 10) || 0); });
         E.evaluate(m, fmt, stage.tie);
+        // 这一场的局分已经记进 games，清掉它自己的草稿（别的场次还留着）
+        var dk = draftOf(m);
+        if (dk) { delete dk['tg:' + si + ':a']; delete dk['tg:' + si + ':b']; }
         var r = m.result || {};
         return {
           ok: true,
@@ -4469,8 +4657,6 @@
         return { ok: true, msg: '已取消手动指定' };
       });
     },
-    toggleHistory: function () { showHistory = !showHistory; render(); },
-
     /* ---- 对阵页导航：随时切到之前任何一轮 / 已结束的旧阶段 ---- */
     pickRound: function (el) {
       var i = parseInt(el.getAttribute('data-i'), 10);
@@ -4703,8 +4889,6 @@
       ask('重新抽签', '将按当前编排方式（' + E.drawLabel(stage) + '）重新抽一次首轮对阵，' +
         '已经录入的成绩不会被清掉（首轮开打后无法重抽）。确定吗？', function (yes) { if (yes) go(); }, '重新抽签');
     },
-    randomRound: function () { mutate(function () { return E.randomizeRound(T); }); },
-    addTable: function () { mutate(function () { return E.addMatchToRound(T); }); },
     delTable: function (el) {
       mutate(function () { return E.removeMatchFromRound(T, el.getAttribute('data-id')); });
     },
@@ -4731,7 +4915,16 @@
         var stage = T.stages[si];
         if (!stage.manualOrder) stage.manualOrder = {};
         var order = stage.manualOrder;
-        if (T.scoring.tieOrder.indexOf('manual') < 0) T.scoring.tieOrder.push('manual');
+        // 「手动指定」这个依据要写进「本阶段实际生效的那套记分规则」里：
+        // E.scOf 返回的是浅合并对象，阶段开了独立记分时它里面的 tieOrder 就是 stage.scoring.tieOrder，
+        // 直接改这个数组才写得进存档；没开独立记分就落到赛事全局 T.scoring
+        var scNow = E.scOf(T, stage);
+        if (scNow.tieOrder.indexOf('manual') < 0) scNow.tieOrder.push('manual');
+        if (stage.useScoring && stage.scoring) {
+          if (!Array.isArray(stage.scoring.tieOrder)) stage.scoring.tieOrder = scNow.tieOrder;
+        } else if (!Array.isArray(T.scoring.tieOrder)) {
+          T.scoring.tieOrder = scNow.tieOrder;
+        }
         E.standings(T, { stageIndex: si }).forEach(function (s, i) {
           if (order[s.id] === undefined) order[s.id] = i;
         });
@@ -4745,7 +4938,14 @@
         var stage = T.stages[si];
         if (!stage.manualOrder) stage.manualOrder = {};
         var order = stage.manualOrder;
-        if (T.scoring.tieOrder.indexOf('manual') < 0) T.scoring.tieOrder.push('manual');
+        // 同上：改本阶段生效的那套配置，别一直往赛事全局里塞
+        var scNow = E.scOf(T, stage);
+        if (scNow.tieOrder.indexOf('manual') < 0) scNow.tieOrder.push('manual');
+        if (stage.useScoring && stage.scoring) {
+          if (!Array.isArray(stage.scoring.tieOrder)) stage.scoring.tieOrder = scNow.tieOrder;
+        } else if (!Array.isArray(T.scoring.tieOrder)) {
+          T.scoring.tieOrder = scNow.tieOrder;
+        }
         E.standings(T, { stageIndex: si }).forEach(function (s, i) {
           if (order[s.id] === undefined) order[s.id] = i;
         });
@@ -4784,8 +4984,12 @@
       ask('删除阶段', '确定删除阶段「' + T.stages[editStage].name + '」？', function (yes) {
         if (!yes) return;
         mutate(function () {
+          var gone = T.stages[editStage];
           T.stages.splice(editStage, 1);
           T.stages.forEach(function (s, i) { s.index = i; });
+          // 阶段独立积分规则按 stage.id 存的，删掉这一阶段就顺手把它那条一起删掉，
+          // 别在存档里留一条谁都对不上的孤儿规则
+          if (gone && gone.id && T.ptsRule && T.ptsRule.stageOv) delete T.ptsRule.stageOv[gone.id];
           if (T.currentStage >= T.stages.length) T.currentStage = T.stages.length - 1;
           editStage = Math.min(editStage, T.stages.length - 1);
           return { ok: true, msg: '已删除阶段' };
@@ -4836,20 +5040,14 @@
 
   /* 导出动作 */
   function extendActs() {
-    /* 对阵卡「录入比分 / 收起」：展开长行卡片的明细区（不影响任何按钮的功能） */
+    /* 对阵卡「明细 / 收起」：只改状态再重绘。
+       以前是直接 classList.toggle + 改文字，重绘后按钮文案又变回「录入比分」，
+       跟真实展开状态对不上；现在文案完全由渲染函数按 openMore[m.id] 决定。 */
     acts.toggleMore = function (el) {
       var id = el && el.getAttribute('data-id');
       if (!id) return;
       openMore[id] = !openMore[id];
-      var open = !!openMore[id];
-      var card = el.closest ? el.closest('.match') : null;
-      if (card) {
-        card.classList.toggle('open', open);
-        var foot = card.querySelector('.match-foot');
-        if (foot) foot.classList.toggle('open', open);
-      }
-      var decided = (el.getAttribute('data-decided') === '1');
-      el.textContent = decided ? '查看' : (open ? '收起' : '录入比分');
+      render();
     };
 
     /* ---------- 赛季 ---------- */
@@ -4904,7 +5102,7 @@
       var t = S.get(sel.value);
       if (!t) return;
       t.seasonId = curSeasonId;
-      S.put(t);
+      S.putQuiet(t);        // 改的是「别的赛事」的赛季归属，别把当前赛事指针换过去
       render();
       toast('已加入赛季');
     };
@@ -4912,7 +5110,7 @@
       var t = S.get(el.getAttribute('data-id'));
       if (!t) return;
       t.seasonId = null;
-      S.put(t);
+      S.putQuiet(t);        // 同上
       render();
       toast('已移出赛季');
     };
@@ -5007,9 +5205,6 @@
         ptsCommit(owner, '最后一档已覆盖到第 ' + n + ' 名');
       }, '这一段名次同分，之后的按步长递减', '延伸');
     };
-    // 兼容旧按钮：等同「加一档」
-    acts.ptsMore = acts.ptsTierAdd;
-    acts.ptsSpread = acts.ptsTierAdd;
 
     /* ---------- 赛季：选计分方式（v2.4） ---------- */
     function curSeason() {
@@ -5062,7 +5257,7 @@
         if (tt) {
           if (!tt.ptsRule) tt.ptsRule = M.defaultPtsRule();
           tt.ptsRule.on = true;
-          S.put(tt);
+          S.putQuiet(tt);       // 只改积分开关，不要切走当前赛事
         }
       }
       if (!openTournamentById(tid)) return;
@@ -5166,7 +5361,9 @@
       if (!T) return;
       var si = parseInt(el.getAttribute('data-i'), 10);
       if (!(si >= 0)) return;
-      var ov = (T.ptsRule.stageOv || {})[String(si)];
+      // 阶段的独立积分规则以 stage.id 为 key（老存档的纯数字 key 仍能读，见 stageOvKeyOf）
+      var ovKey = stageOvKeyOf(T.ptsRule, T.stages, si);
+      var ov = (T.ptsRule.stageOv || {})[ovKey];
       if (ptsStageOpen === si && ov) { ptsStageOpen = -1; render(); return; }
       if (!ov) {
         mutate(function () {
@@ -5174,7 +5371,7 @@
           delete c.stageOv;
           c.on = true;
           T.ptsRule.stageOv = T.ptsRule.stageOv || {};
-          T.ptsRule.stageOv[String(si)] = c;
+          T.ptsRule.stageOv[ovKey] = c;
           return { ok: true };
         });
       }
@@ -5185,6 +5382,9 @@
       if (!T) return;
       var si = parseInt(el.getAttribute('data-i'), 10);
       mutate(function () {
+        // 新旧两种 key 一起删，免得老的数字 key 还压着一份生效
+        var keyNow = stageOvKeyOf(T.ptsRule, T.stages, si);
+        delete T.ptsRule.stageOv[keyNow];
         delete T.ptsRule.stageOv[String(si)];
         if (ptsStageOpen === si) ptsStageOpen = -1;
         return { ok: true, msg: '已恢复跟随赛事默认' };
@@ -5200,13 +5400,7 @@
       });
     };
 
-    /* ---------- 赛季计分来源切换（v2.4：统一走 seasonPlan，这里只做旧接口兼容） ---------- */
-    acts.seasonSrc = function (el) {
-      var target = el.getAttribute('data-src');
-      acts.seasonPlan({
-        getAttribute: function () { return target === 'tournament' ? 'site' : 'single'; }
-      });
-    };
+    /* 导出回调：成功 / 失败 / 取消三种情况统一提示（原来在同一个函数里定义了两遍，删掉重复那份） */
     function exDone(r) {
       if (!r || r.canceled) return;
       toast(r.msg || (r.ok ? '导出完成' : '导出失败'), r.ok === false);
@@ -5293,12 +5487,6 @@
     }
     function exUpTo() {
       return exSel.round >= 0 ? exSel.round : null;
-    }
-
-    function exDone(r) {
-      if (!r) return;
-      if (r.canceled) return;
-      toast(r.msg || (r.ok ? '导出完成' : '导出失败'), r.ok === false);
     }
 
     acts.pdfSelRound = function () {
@@ -5395,6 +5583,24 @@
       }
     });
 
+    /* ---- 比分草稿：边输入边存（v2.6.2） ----
+       这些框的值以前只活在 DOM 里，切轮次 / 计时器到点重绘一下就没了。
+       这里按「比赛 id + 哪个框」记到草稿里，渲染时优先回填，结算成功再清掉。 */
+    document.addEventListener('input', function (e) {
+      var t2 = e.target;
+      if (!t2 || !t2.id) return;
+      var id = String(t2.id), m = null, key = '', mt;
+      if (id.indexOf('qa_') === 0) { m = matchIndex[id.slice(3)]; key = 'a'; }
+      else if (id.indexOf('qb_') === 0) { m = matchIndex[id.slice(3)]; key = 'b'; }
+      else if (id.indexOf('sa_') === 0) { m = matchIndex[id.slice(3)]; key = 'sa'; }
+      else if (id.indexOf('sb_') === 0) { m = matchIndex[id.slice(3)]; key = 'sb'; }
+      else if ((mt = /^tg_(.+)_(\d+)_([ab])$/.exec(id))) {
+        m = matchIndex[mt[1]]; key = 'tg:' + mt[2] + ':' + mt[3];
+      }
+      if (!m || !key) return;
+      draftSet(m, key, t2.value);
+    });
+
     document.addEventListener('change', function (e) {
       /* ---- 赛季「逐阶段设置」里的单阶段字段 ---- */
       var seU = e.target.closest('[data-se-unit]');
@@ -5408,8 +5614,15 @@
         var sVal;
         if (seU.type === 'checkbox') sVal = seU.checked;
         else if (seU.type === 'number') {
-          sVal = seU.value === '' ? 0 : (parseFloat(seU.value) || 0);
-          if (seU.value === '' && /(^|\.)(from|to)$/.test(sRel)) sVal = 1;
+          if (seU.value === '') {
+            if (/(^|\.)(from|to)$/.test(sRel)) {
+              sVal = 1;                       // 档位的名次清空 = 回到「第几档」的默认名次
+            } else {
+              var bns = blankNumberRule(seU, sRel, sOv);
+              if (!bns.ok) return;            // 不写数据、框已回填原值，也别重绘
+              sVal = bns.v;
+            }
+          } else sVal = parseFloat(seU.value) || 0;
         } else if (sRel === 'stack') {
           sVal = (seU.value === '1');       // 叠加开关要存成布尔，存字符串会退回默认值
         } else sVal = seU.value;
@@ -5434,8 +5647,15 @@
           render();
           return;
         }
-        var sv = seEl.type === 'checkbox' ? seEl.checked
-          : (seEl.type === 'number' ? (parseFloat(seEl.value) || 0) : seEl.value);
+        var sv;
+        if (seEl.type === 'checkbox') sv = seEl.checked;
+        else if (seEl.type === 'number') {
+          if (seEl.value === '') {
+            var bnb = blankNumberRule(seEl, sp, se0);
+            if (!bnb.ok) return;
+            sv = bnb.v;
+          } else sv = parseFloat(seEl.value) || 0;
+        } else sv = seEl.value;
         setPath(se0, sp, sv);
         S.putSeason(se0);
         render();
@@ -5470,7 +5690,7 @@
         var ttS = S.get(tidS);
         if (ttS) {
           ttS.seasonId = tsEl.value || null;
-          S.put(ttS);
+          S.putQuiet(ttS);      // 列表页只改赛季归属，不切当前赛事
           if (T && T.id === tidS) T.seasonId = ttS.seasonId;
           if (T) S.setCurrentId(T.id);
           render();
@@ -5492,8 +5712,14 @@
           return;
         }
         if (el.type === 'checkbox') v = el.checked;
-        else if (el.type === 'number') v = parseFloat(el.value) || 0;
-        else v = el.value;
+        else if (el.type === 'number') {
+          // 清空数字框：只有「0 是合法值」的字段才写 0，其余保留原值（见 blankNumberRule）
+          if (el.value === '') {
+            var bnv = blankNumberRule(el, path, T);
+            if (!bnv.ok) return;
+            v = bnv.v;
+          } else v = parseFloat(el.value) || 0;
+        } else v = el.value;
         setPath(T, path, v);
         var mst = /^stages\[(\d+)\]/.exec(path);
         if (mst) afterStageEdit(T.stages[parseInt(mst[1], 10)], path);
@@ -5598,24 +5824,30 @@
     });
 
     /* ---- 计时器心跳：每秒刷新倒计时显示；到点自动结算未打完的比赛 ---- */
-    function tmFind(id) {
-      if (!T || !T.stages) return null;
+    // 有没有「真在走」的表？没有就直接 return，别每秒白扫一遍（旧版常驻每秒全表扫描）
+    function runningTimers() {
+      if (!T || !T.stages) return false;
       for (var si = 0; si < T.stages.length; si++) {
         var rds = T.stages[si].roundsData || [];
         for (var r = 0; r < rds.length; r++) {
           var ms = rds[r].matches || [];
-          for (var k = 0; k < ms.length; k++) if (ms[k].id === id) return ms[k];
+          for (var k = 0; k < ms.length; k++) {
+            if (ms[k] && ms[k].tm && ms[k].tm.startedAt) return true;
+          }
         }
       }
-      return null;
+      // 列表 / 设置页上没有倒计时元素，也就不用刷新
+      return !!(document.querySelector && document.querySelector('[data-tm]'));
     }
     function tmTickUI() {
       if (!T || !T.stages) return;
+      if (!runningTimers()) return;
       var now = Date.now();
       var els = document.querySelectorAll('[data-tm]');
       for (var i = 0; i < els.length; i++) {
         var el = els[i];
-        var m = tmFind(el.getAttribute('data-tm'));
+        // 查渲染时建好的索引，别再全表线性找一遍
+        var m = matchIndex[el.getAttribute('data-tm')] || tmFind(el.getAttribute('data-tm'));
         if (!m) continue;
         var st = E.tmState(m, now);
         if (!st.on) continue;
@@ -5626,9 +5858,23 @@
       var done = E.tmTick(T, now);
       if (done.length) {
         save();
+        // 到点自动结算会整页重绘，先把焦点记下来，别让裁判正在填的框被踢掉
+        rememberFocus();
         render();
         toast('计时器到点，已自动结算 ' + done.length + ' 场未打完的比赛');
       }
+    }
+    // 只在需要时给索引兜底（render 之外还可能被调用到，保守起见保留一个退化查询）
+    function tmFind(id) {
+      if (!T || !T.stages) return null;
+      for (var si = 0; si < T.stages.length; si++) {
+        var rds = T.stages[si].roundsData || [];
+        for (var r = 0; r < rds.length; r++) {
+          var ms = rds[r].matches || [];
+          for (var k = 0; k < ms.length; k++) if (ms[k].id === id) return ms[k];
+        }
+      }
+      return null;
     }
     setInterval(tmTickUI, 1000);
 
@@ -5653,13 +5899,43 @@
       if (pendingFileAction === 'json') {
         X.readJSONFile(file, function (err, obj) {
           if (err) { toast('存档解析失败：' + err.message, true); return; }
-          if (!obj || !obj.players) { toast('这不是有效的赛事存档', true); return; }
-          T = S.normalize(obj);
-          S.put(T);
-          TMS.current = T;
-          editStage = 0; stView = { stageIndex: T.currentStage || 0, groupIdx: -1, bracketMerged: true }; arrangeOn = false; slotOn = false; slotDraft = null; arrGroupIdx = -1; viewRound = -1; viewStageIdx = -1;
-          curView = 'setup'; render();
-          toast('已载入存档：' + T.name);
+          /* 先只做「能不能安全地用」这一步校验：不通过就一个字段都不动，
+             以前只判断 obj.players，坏的存档也能把当前赛事换掉，界面直接白屏 */
+          var vd = S.validateImport(obj);
+          if (!vd.ok) { toast(vd.msg || '这不是有效的赛事存档', true); return; }
+
+          function doImport(o) {
+            T = S.normalize(o);
+            S.put(T);
+            S.setCurrentId(T.id);        // v2.6.1 起 S.put 不再顺手改当前赛事指针
+            TMS.current = T;
+            editStage = 0; stView = { stageIndex: T.currentStage || 0, groupIdx: -1, bracketMerged: true }; arrangeOn = false; slotOn = false; slotDraft = null; arrGroupIdx = -1; viewRound = -1; viewStageIdx = -1;
+            curView = 'setup'; render();
+            toast('已载入存档：' + T.name);
+          }
+
+          if (vd.idHit) {
+            /* 本机已有同 id 的赛事：覆盖会毁掉原来那份「已经打完」的存档，
+               所以问一句；点取消 = 另存为副本（换 id、清成绩，跟「复制」一个口径） */
+            ask('导入存档', '本机已经有同一个 id 的赛事「' + (obj.name || '') + '」。' +
+              '点「覆盖」会用它替换本机那一份；点「取消」则另存为副本（不动原来那份）。',
+              function (yes) {
+                if (yes) { doImport(obj); return; }
+                var cp = U.clone(obj);
+                cp.id = U.uid('t');
+                cp.name = (obj.name || '赛事') + ' 副本';
+                cp.status = 'setup';
+                cp.currentStage = 0;
+                cp.history = [];
+                (cp.stages || []).forEach(function (s, i) {
+                  s.id = U.uid('st'); s.index = i; s.status = 'pending';
+                  s.roundsData = []; s.eliminated = []; s.advanced = []; s.groups = null; s.de = null; s.participants = [];
+                });
+                doImport(cp);
+              }, '覆盖');
+            return;
+          }
+          doImport(obj);
         });
       } else if (pendingFileAction === 'names') {
         var fr = new FileReader();

@@ -537,12 +537,52 @@
   };
 
   // 当前该录入第几个回合（已打完的回合自动跳过）
+  // v2.6.1：规定的回合全部打完仍然分不出胜负时（加赛制），返回「额外的那一个回合」，
+  //         以前这里返回 S-1，导致加赛无处可录、比赛永远结束不了
   E.curSet = function (match, fmt, tie) {
     var S = E.setCount(fmt);
     for (var i = 0; i < S; i++) {
       if (!E.setDone(match, i, fmt, tie)) return i;
     }
+    if (E.setsNeedOvertime(match, fmt, tie)) return Math.max(S, E.setMaxIndex(match) + 1);
     return S - 1;
+  };
+
+  // 比赛里实际出现过的最大回合序号（-1 = 还没录）
+  E.setMaxIndex = function (match) {
+    var mx = -1;
+    (match && match.games || []).forEach(function (g) {
+      var si = parseInt(g.s, 10) || 0;
+      if (si > mx) mx = si;
+    });
+    return mx;
+  };
+
+  // 规定回合已全部打完，且按当前口径确实分不出胜负 → 需要打加赛回合
+  // （把已经打过的加赛回合也算进来，否则加赛打完还会被判成「还要加赛」）
+  E.setsNeedOvertime = function (match, fmt, tie) {
+    if (tie !== 'sudden_death') return false;
+    var Sbase = E.setCount(fmt);
+    var S = Math.max(Sbase, E.setMaxIndex(match) + 1);
+    var i, sA = 0, sB = 0, totA = 0, totB = 0, ptsA = 0, ptsB = 0;
+    for (i = 0; i < S; i++) {
+      if (!E.setDone(match, i, fmt, tie)) return false;
+      var ps = E.progressSet(match, i);
+      totA += ps.a; totB += ps.b;
+      var w = E.setWinnerOf(match, i, fmt, tie);
+      if (w === 'A') sA++; else if (w === 'B') sB++;
+    }
+    var need = E.setsNeeded(fmt);
+    if (sA >= need || sB >= need) return false;      // 回合数已经分出胜负
+    (match && match.games || []).forEach(function (g) {
+      if (typeof g.a === 'number' && isFinite(g.a)) ptsA += g.a;
+      if (typeof g.b === 'number' && isFinite(g.b)) ptsB += g.b;
+    });
+    var rule = (fmt && fmt.setRule) || 'sets';
+    if (rule === 'games') return totA === totB;
+    if (rule === 'points') return ptsA === ptsB;
+    if (sA !== sB) return false;
+    return totA === totB;
   };
 
   // 各回合的胜方
@@ -715,7 +755,10 @@
    *   points 总得分（各回合小分相加）→ 大比分 = 总得分
    */
   E.evaluateSets = function (match, fmt, tie) {
-    var S = E.setCount(fmt);
+    var Sbase = E.setCount(fmt);
+    // 加赛回合：已经录进额外回合（审 s >= Sbase）时要把它们一起算进来，
+    // 否则加赛那几局永远不进大比分，比赛卡在「平局 · 需加赛」出不来
+    var S = Math.max(Sbase, E.setMaxIndex(match) + 1);
     var setsA = 0, setsB = 0, totA = 0, totB = 0, totD = 0, ptsA = 0, ptsB = 0;
     var setW = [], i;
 
@@ -793,7 +836,7 @@
     match.result = {
       winner: winner, gamesA: ga, gamesB: gb, draws: totD, settled: decided,
       setsA: setsA, setsB: setsB, setWinners: setW, rawGamesA: totA, rawGamesB: totB,
-      pointsA: ptsA, pointsB: ptsB, setRule: rule, sets: S,
+      pointsA: ptsA, pointsB: ptsB, setRule: rule, sets: Sbase, setsPlayed: S,
       advA: 0, advB: 0
     };
     match.decided = decided;
@@ -820,7 +863,10 @@
       for (i = 0; i < S; i++) {
         if (!E.setDone(match, i, fmt, tie)) { cur = i; break; }
       }
-      if (cur < 0) return false;
+      if (cur < 0) {
+        // 规定回合打完仍平手（加赛制）→ 允许再录一个加赛回合
+        return E.setsNeedOvertime(match, fmt, tie);
+      }
       if ((fmt.setRule || 'sets') === 'sets') {
         var need = E.setsNeeded(fmt), sA = 0, sB = 0;
         for (i = 0; i < S; i++) {
@@ -872,7 +918,9 @@
     if (fmt.team) return Math.max(1, parseInt(fmt.sets, 10) || 1);
     if (S > 1) {
       var per = M > 0 ? (M * 2 - 1) : N;
-      return per * S;
+      // 已进入加赛回合的，按实际打到的回合数算上限（否则 UI 会以为已经打满）
+      var played = E.setMaxIndex(match) + 1;
+      return per * Math.max(S, played);
     }
     if (match && match.gfAdv) {
       var advA = 0, advB = 0;
@@ -979,6 +1027,31 @@
     var M = Math.max(0, parseInt(fmt.winNeeded, 10) || 0);
     var out = [];
 
+    // 多回合（回合数 > 1）：大比分是「赢下的回合数 / 总赢局 / 总得分」，不是单回合局数。
+    // 以前这里永远只按单回合枚举，选「按大比分逐档设分」时回合赛制的档位全都对不上。
+    var S = Math.max(1, parseInt(fmt.sets, 10) || 1);
+    if (S > 1) {
+      var rule = fmt.setRule || 'sets';
+      if (rule === 'sets') {
+        var need = E.setsNeeded(fmt);
+        for (var sl = 0; sl <= need - 1; sl++) {
+          out.push({ a: need, b: sl, key: need + '-' + sl, draw: false });
+        }
+        return out;
+      }
+      // 按总大比分 / 总得分：双方最多各赢 S × 每回合局数
+      var per = (M > 0) ? M : N;
+      var hi = per * S;
+      var allowDrawS = (tie !== 'sudden_death');
+      for (var sa = hi; sa >= 0; sa--) {
+        for (var sb = 0; sb <= sa; sb++) {
+          if (sa === sb && !allowDrawS) continue;
+          out.push({ a: sa, b: sb, key: sa + '-' + sb, draw: (sa === sb) });
+        }
+      }
+      return out;
+    }
+
     if (M > 0) {
       // 先赢 M 局即结束：胜方恰好 M 局，负方 0 ~ M-1 局
       for (var l = 0; l <= M - 1; l++) {
@@ -1046,6 +1119,9 @@
   E.evalFormula = function (expr, vars) {
     var s = String(expr === undefined ? '' : expr);
     var pos = 0;
+    // 语法错误一律抛异常（以前遇到不认识/缺操作数的字符直接 pos++ 返回 0，
+    // 于是 "w+"、"w//2" 这类公式校验通过、求值却静默算成 0 或错值）
+    function fail(msg) { throw new Error(msg || '公式语法错误'); }
 
     function skip() { while (pos < s.length && (s[pos] === ' ' || s[pos] === '\t')) pos++; }
     function parseExpr() {
@@ -1074,6 +1150,7 @@
     }
     function parseUnary() {
       skip();
+      if (pos >= s.length) fail('公式结尾缺少数字或变量');
       if (s[pos] === '-') { pos++; return -parseUnary(); }
       if (s[pos] === '+') { pos++; return parseUnary(); }
       return parsePower();
@@ -1086,12 +1163,14 @@
     }
     function parseAtom() {
       skip();
+      if (pos >= s.length) fail('公式结尾缺少数字或变量');
       var c = s[pos];
       if (c === '(') {
         pos++;
         var v = parseExpr();
         skip();
-        if (s[pos] === ')') pos++;
+        if (s[pos] !== ')') fail('括号不匹配');
+        pos++;
         return v;
       }
       var m = /^[0-9]*\.?[0-9]+/.exec(s.slice(pos));
@@ -1102,17 +1181,21 @@
         var val = vars[name];
         return (typeof val === 'number' && isFinite(val)) ? val : 0;
       }
-      pos++;
-      return 0;
+      fail('无法识别的字符「' + c + '」');
     }
 
     var out;
-    try { out = parseExpr(); }
-    catch (e) { return 0; }
+    try {
+      out = parseExpr();
+      skip();
+      if (pos < s.length) fail('公式末尾有多余内容「' + s.slice(pos) + '」');
+    } catch (e) { return 0; }
     return (typeof out === 'number' && isFinite(out)) ? out : 0;
   };
 
   // 公式合法性校验（用于界面即时提示，不阻塞输入）
+  // v2.6.1：真正跑一遍解析器，语法错误（多余运算符、缺操作数、括号不配对）一律报错，
+  //         不再只看字符白名单 —— 以前 "w+" / "1 2" / "w^^2" 都会被判成「公式可用」
   E.validateFormula = function (expr) {
     var s = String(expr === undefined ? '' : expr).trim();
     if (!s) return { ok: false, msg: '公式不能为空' };
@@ -1132,7 +1215,87 @@
     while ((m = re.exec(s)) !== null) {
       if (!known[m[0]]) return { ok: false, msg: '未知变量「' + m[0] + '」，可用：' + Object.keys(known).join(', ') };
     }
+    // 用全 1 的变量值真跑一遍，语法错就会抛
+    var probe = {};
+    Object.keys(known).forEach(function (k) { probe[k] = 1; });
+    try {
+      var v = E.evalFormulaStrict(s, probe);
+      if (!isFinite(v)) return { ok: false, msg: '公式计算结果不是有效数字' };
+    } catch (e) {
+      return { ok: false, msg: '公式语法错误：' + (e && e.message ? e.message : e) };
+    }
     return { ok: true, msg: '公式可用' };
+  };
+
+  // 严格版求值：语法错误时抛异常（校验与内部诊断用；计分仍用 E.evalFormula 的 0 兜底）
+  E.evalFormulaStrict = function (expr, vars) {
+    var s = String(expr === undefined ? '' : expr);
+    var pos = 0;
+    function skip() { while (pos < s.length && (s[pos] === ' ' || s[pos] === '\t')) pos++; }
+    function fail(msg) { throw new Error(msg || '公式语法错误'); }
+    function parseExpr() {
+      var v = parseTerm();
+      for (;;) {
+        skip();
+        var c = s[pos];
+        if (c === '+' || c === '-') { pos++; var r = parseTerm(); v = (c === '+') ? (v + r) : (v - r); }
+        else break;
+      }
+      return v;
+    }
+    function parseTerm() {
+      var v = parseUnary();
+      for (;;) {
+        skip();
+        var c = s[pos];
+        if (c === '*' || c === '/' || c === '%') {
+          pos++; var r = parseUnary();
+          if (c === '*') v = v * r;
+          else if (c === '/') v = (r === 0 ? 0 : v / r);
+          else v = (r === 0 ? 0 : v % r);
+        } else break;
+      }
+      return v;
+    }
+    function parseUnary() {
+      skip();
+      if (pos >= s.length) fail('公式结尾缺少数字或变量');
+      if (s[pos] === '-') { pos++; return -parseUnary(); }
+      if (s[pos] === '+') { pos++; return parseUnary(); }
+      return parsePower();
+    }
+    function parsePower() {
+      var v = parseAtom();
+      skip();
+      if (s[pos] === '^') { pos++; v = Math.pow(v, parseUnary()); }
+      return v;
+    }
+    function parseAtom() {
+      skip();
+      if (pos >= s.length) fail('公式结尾缺少数字或变量');
+      var c = s[pos];
+      if (c === '(') {
+        pos++;
+        var v = parseExpr();
+        skip();
+        if (s[pos] !== ')') fail('括号不匹配');
+        pos++;
+        return v;
+      }
+      var m = /^[0-9]*\.?[0-9]+/.exec(s.slice(pos));
+      if (m) { pos += m[0].length; return parseFloat(m[0]); }
+      var m2 = /^[A-Za-z_][A-Za-z0-9_]*/.exec(s.slice(pos));
+      if (m2) {
+        var name = m2[0]; pos += m2[0].length;
+        var val = vars[name];
+        return (typeof val === 'number' && isFinite(val)) ? val : 0;
+      }
+      fail('无法识别的字符「' + c + '」');
+    }
+    var out = parseExpr();
+    skip();
+    if (pos < s.length) fail('公式末尾有多余内容「' + s.slice(pos) + '」');
+    return out;
   };
 
   // 公式可用变量说明（用于界面提示）
@@ -1343,9 +1506,13 @@
       }
 
       // 累进分：本轮全部结束后，把每人「当时的累计积分」再加一遍
-      Object.keys(stats).forEach(function (id) {
-        stats[id].progressive += stats[id].points;
-      });
+      // v2.6.1：只累加「真正打完」的轮次 —— 循环赛会一次性预生成后面所有轮次，
+      //         以前这里照单全收，累进分会被提前翻好几倍（破同分就跟着错）
+      if (E.roundComplete(t, stage, rounds[i]).ok) {
+        Object.keys(stats).forEach(function (id) {
+          stats[id].progressive += stats[id].points;
+        });
+      }
     }
 
     // Buchholz：对手的本赛段积分总和（轮空不计）；继承时叠加上一阶段的对手分
@@ -1500,12 +1667,20 @@
   };
 
   // 按 tieOrder 生成比较器（sc 为阶段生效的记分配置）
-  E.makeComparator = function (t, stats, h2h, sc) {
+  //   skip.h2h = true 时不参与比较：相互战绩只适用于「两人并列」，
+  //   混在比较器里会让排序不满足传递性（A胜B、B胜C、C胜A 时结果取决于初始顺序）。
+  E.makeComparator = function (t, stats, h2h, sc, skip) {
     sc = sc || E.scOf(t, null);
+    skip = skip || {};
     // 允许为空数组：用户主动删除全部依据时表示「不比较，保持原顺序」
     var order = Array.isArray(sc.tieOrder) ? sc.tieOrder : M.defaultScoring().tieOrder;
     var manual = sc.manualOrder || {};
     var val = E.tieVal;
+    // 手动调序：没填序号的人统一用同一个哨兵值，保证比较可传递
+    function manualOf(id) {
+      var v = parseInt(manual[id], 10);
+      return isNaN(v) ? 1e9 : v;
+    }
 
     return function (ia, ib) {
       var a = stats[ia], b = stats[ib];
@@ -1513,6 +1688,7 @@
       for (var i = 0; i < order.length; i++) {
         var key = order[i];
         if (key === 'h2h') {
+          if (skip.h2h) continue;
           var k = U.pairKey(ia, ib);
           var e = h2h[k];
           if (e) {
@@ -1521,8 +1697,8 @@
             if (aWins !== bWins) return bWins - aWins;
           }
         } else if (key === 'manual') {
-          var ma = manual[ia], mb = manual[ib];
-          if (ma !== undefined && mb !== undefined && ma !== mb) return ma - mb;
+          var ma = manualOf(ia), mb = manualOf(ib);
+          if (ma !== mb) return ma - mb;
         } else {
           var va = val(a, key), vb = val(b, key);
           if (va !== vb) return vb - va;
@@ -1551,7 +1727,9 @@
     var sc = E.scOf(t, stage);
     var stats = E.buildStats(t, stage, ids, gi, upTo);
     var h2h = E.buildH2H(t, stage, gi, upTo);
-    var cmp = E.makeComparator(t, stats, h2h, sc);
+    // 相互战绩不放进主比较器（不满足传递性），排序后再对「并列小段」单独处理
+    var cmpBase = E.makeComparator(t, stats, h2h, sc, { h2h: true });
+    function h2hOn() { return (sc.tieOrder || []).indexOf('h2h') >= 0; }
 
     // ---- 提前晋级 / 提前淘汰：分层排序 ----
     // 第 0 层 = 已提前晋级（排在所有未定者之前）
@@ -1584,7 +1762,7 @@
         ia = ia < 0 ? 9999 : ia;
         ib = ib < 0 ? 9999 : ib;
         if (ia !== ib) return ia - ib;
-        return cmp(a, b);
+        return cmpBase(a, b);
       });
     } else if (useLayer) {
       ids.sort(function (a, b) {
@@ -1603,27 +1781,68 @@
           eb = (eb === undefined || eb === null) ? 9999 : eb;
           if (ea !== eb) return eb - ea;
         }
-        return cmp(a, b);
+        return cmpBase(a, b);
       });
     } else {
-      ids.sort(cmp);
+      ids.sort(cmpBase);
     }
 
-    // 计算名次（同分同名次）；分层也算进名次键，否则跨层同分会显示成同一名次
-    // v2.3：判负 / 警告若在破同依据里启用，也算进名次键 ——
-    //       否则会出现「排序上分成先后、名次却都显示 1」的矛盾，进而让名次分档两头不一致。
-    //       （逐阶段得分 / h2h / 种子只影响先后顺序，不参与「是否并列」的判定）
-    var penKeys = ['forfeit', 'warnings'].filter(function (k) {
-      return (sc.tieOrder || []).indexOf(k) >= 0;
+    // ---- 相互战绩：只在「并列小段」内使用 ----
+    // 两两胜负不满足传递性（A胜B、B胜C、C胜A），混进主比较器会让名次取决于录入顺序。
+    // 这里先按其它依据排好，再对比较器认为相等（且同层）的连续小段：
+    //   2 人并列 → 直接看两人胜负；3 人以上 → 用并列小段内的「迷你积分表」。
+    if (h2hOn() && !(gi === null && upTo === null && stage.finalRank && stage.finalRank.length)) {
+      var i0 = 0;
+      while (i0 < ids.length) {
+        var i1 = i0 + 1;
+        while (i1 < ids.length && layerOf(ids[i0]) === layerOf(ids[i1]) &&
+          cmpBase(ids[i0], ids[i1]) === 0) i1++;
+        var span = i1 - i0;
+        if (span === 2) {
+          var hx = ids[i0], hy = ids[i0 + 1];
+          var he = h2h[U.pairKey(hx, hy)];
+          if (he) {
+            var hxw = (he.a === hx) ? he.aw : he.bw;
+            var hyw = (he.a === hy) ? he.aw : he.bw;
+            if (hyw > hxw) { ids[i0] = hy; ids[i0 + 1] = hx; }
+          }
+        } else if (span > 2) {
+          var grp = ids.slice(i0, i1), miniWin = {};
+          grp.forEach(function (id) { miniWin[id] = 0; });
+          grp.forEach(function (id) {
+            grp.forEach(function (other) {
+              if (id === other) return;
+              var ee = h2h[U.pairKey(id, other)];
+              if (!ee) return;
+              var mine = (ee.a === id) ? ee.aw : ee.bw;
+              var theirs = (ee.a === id) ? ee.bw : ee.aw;
+              if (mine > theirs) miniWin[id] += 1;
+            });
+          });
+          grp.sort(function (p1, p2) { return miniWin[p2] - miniWin[p1]; });  // 稳定排序，其余保持原序
+          for (var q = 0; q < grp.length; q++) ids[i0 + q] = grp[q];
+        }
+        i0 = (span > 1) ? i1 : i0 + 1;
+      }
+    }
+
+    // 计算名次（同分同名次）
+    // v2.6.1：名次键改为「完全由 tieOrder 决定」——
+    //   以前固定拼 points|buchholz|gamesDiff|cumulative，用户把这些依据删掉后
+    //   排序已经并列了、名次却还被隐藏字段拆开。
+    //   h2h / manual / seed / 逐阶段得分只影响先后顺序，不参与「是否并列」的判定。
+    var orderOnly = { h2h: 1, manual: 1, seed: 1, stagePoints: 1 };
+    var rankKeys = (Array.isArray(sc.tieOrder) ? sc.tieOrder : M.defaultScoring().tieOrder).filter(function (k) {
+      if (orderOnly[k]) return false;
+      if (M.stageTieIdx(k) >= 0) return false;
+      return true;
     });
+    if (!rankKeys.length) rankKeys = ['points'];
     var list = [], rank = 0, prevKey = null;
     ids.forEach(function (id, i) {
       var s = stats[id];
       var lyr = layerOf(id);
-      var key = lyr + '|' + String(s.points) + '|' + String(s.buchholz) + '|' + String(s.gamesDiff) + '|' + String(s.cumulative);
-      if (penKeys.length) {
-        key += '|' + penKeys.map(function (k) { return String(E.tieVal(s, k)); }).join('|');
-      }
+      var key = lyr + '|' + rankKeys.map(function (k) { return String(E.tieVal(s, k)); }).join('|');
       if (key !== prevKey) { rank = i + 1; prevKey = key; }
       var p = t.players.filter(function (x) { return x.id === id; })[0] || {};
       s.rank = rank;
@@ -1699,7 +1918,22 @@
       stage.participants = ids;
     } else {
       // 已经生成过名单的阶段：补进后来才被标成「从本阶段开始」的选手
+      var before = stage.participants.length;
       stage.participants = E.withLatecomers(t, t.stages.indexOf(stage), stage.participants);
+      // 小组赛：分组早就建好了，后进选手只进了 participants 却没进任何小组 →
+      // 既不会被编排也不会进排名（静默消失）。这里补进人数最少的组。
+      if (stage.type === 'groups' && stage.groups && stage.groups.length &&
+        stage.participants.length > before) {
+        var inGroup = {};
+        stage.groups.forEach(function (g) { (g.players || []).forEach(function (id) { inGroup[id] = 1; }); });
+        stage.participants.forEach(function (id) {
+          if (inGroup[id]) return;
+          var target = stage.groups[0];
+          stage.groups.forEach(function (g) { if ((g.players || []).length < (target.players || []).length) target = g; });
+          target.players.push(id);
+          inGroup[id] = 1;
+        });
+      }
     }
     return stage.participants;
   };
@@ -1777,6 +2011,9 @@
     }
 
     // ---- 轮空位优先给排名靠前者 ----
+    // v2.6.1：直接按排名序把人放进轮空位，其余人按原顺序填满非轮空位。
+    //   以前是边遍历边两两对调，遇到「某人本来就在轮空位」就跳过，
+    //   后面的对调又会把他换走，导致排名第 1 反而没拿到轮空。
     var rank = (rankIds && rankIds.length) ? rankIds.slice() : ids.slice();
     var byePos = [];
     for (var p = 0; p + 1 < slots.length; p += 2) {
@@ -1784,20 +2021,23 @@
       else if (!slots[p] && slots[p + 1]) byePos.push(p + 1);
     }
     if (byePos.length && rank.length) {
-      var top = rank.slice(0, byePos.length);
       var posOf = {};
       slots.forEach(function (id, k) { if (id) posOf[id] = k; });
-      top.forEach(function (id, k) {
-        var at = posOf[id];
-        if (at === undefined) return;
-        var target = byePos[k];
-        if (at === target) return;
-        if (byePos.indexOf(at) >= 0) return;          // 本来就在轮空位上，别抢别人的
-        var move = slots[target];
-        slots[target] = id;
-        slots[at] = move;
-        posOf[id] = target;
-        if (move) posOf[move] = at;
+      // 按「轮空位」逐个换人：第 k 个轮空位给排名第 k 的人。
+      // 注意必须「同组内换人」（拿轮空位上的现有人去换），
+      // 不能把排名靠前者塞进这一对里的空位 —— 那样这一对就变成两人对抗，轮空反而没了。
+      byePos.forEach(function (target, k) {
+        var want = rank[k];
+        if (want === undefined) return;
+        var at = posOf[want];
+        if (at === undefined) return;                 // 不在座位上（没进 bracket）
+        if (at === target) return;                    // 已经在这个轮空位上
+        // 交换两个人（不交换空位），每一对的人数因此保持不变，轮空关系不会被打乱
+        var cur = slots[target];
+        slots[target] = want;
+        slots[at] = cur;
+        posOf[want] = target;
+        if (cur) posOf[cur] = at;
       });
     }
     return slots;
@@ -2417,6 +2657,11 @@
       // 首轮：退赛者直接不进对阵表（否则会在胜者组里占一个位置）
       var dead0 = E.droppedMap(t);
       var seeded = stage.participants.filter(function (id) { return !dead0[id]; });
+      // 0~1 人打不了双败：以前会压进一个「0 场比赛」的轮次，阶段永远结束不了
+      if (seeded.length < 2) {
+        stage.status = 'finished';
+        return { ok: false, msg: '双败淘汰至少需要 2 名可参赛选手（当前 ' + seeded.length + ' 人）' };
+      }
       if (!(parseInt(stage.drawSeed, 10) > 0)) stage.drawSeed = U.randomSeed();
       // 分组起跑：排名前 N 进胜者组，其余从败者组打起（未设置则全部进胜者组）
       var fr = E.deFirstRound(t, stage, seeded);
@@ -2742,12 +2987,13 @@
     if ((stage.pairMode || 'auto') === 'manual' &&
       (stage.groupType === 'round_robin' || stage.groupType === 'swiss')) {
       var pending = [], pendingIdx = [];
+      var deadP = E.droppedMap(t);
       for (var gi = 0; gi < stage.groups.length; gi++) {
         var gg = stage.groups[gi];
         if (gg.finished) continue;
         var galive = gg.players.filter(function (id) {
           return (stage.eliminated || []).indexOf(id) < 0 &&
-            (stage.clinched || []).indexOf(id) < 0;
+            (stage.clinched || []).indexOf(id) < 0 && !deadP[id];
         });
         if (galive.length >= 2) { pending.push(gg.name); pendingIdx.push(gi); }
       }
@@ -2768,9 +3014,10 @@
         if (gde.any) any = true;
         continue;
       }
+      var deadG = E.droppedMap(t);
       var alive = g.players.filter(function (id) {
         return (stage.eliminated || []).indexOf(id) < 0 &&
-          (stage.clinched || []).indexOf(id) < 0;
+          (stage.clinched || []).indexOf(id) < 0 && !deadG[id];
       });
       var prs = [];
 
@@ -2804,6 +3051,7 @@
           bm.isBye = true;
           matches.push(bm);
           any = true;
+          E.markBye(t, rs.bye);       // 组内也要记「已经轮空过」，否则同一人可能连着轮空
         }
       } else if (stage.groupType === 'single_elim') {
         if (rIdx === 0) {
@@ -2843,7 +3091,7 @@
 
       prs.forEach(function (p) {
         var m = E.mkMatch(rIdx, p[0], p[1], gi);
-        if (!p[1]) m.isBye = true;
+        if (!p[1]) { m.isBye = true; E.markBye(t, p[0]); }
         matches.push(m);
         any = true;
       });
@@ -2862,6 +3110,13 @@
     var map = {};
     (t.players || []).forEach(function (p) { if (p.active === false) map[p.id] = 1; });
     return map;
+  };
+
+  // 记「这个人已经轮空过」——轮空策略靠它保证每人最多轮空一次。
+  // 顶层瑞士轮与小组赛都要写，否则组内会出现同一人连续轮空。
+  E.markBye = function (t, id) {
+    if (!id) return;
+    (t.players || []).forEach(function (p) { if (p.id === id) p.hasBye = true; });
   };
 
   /**
@@ -3092,24 +3347,27 @@
   /** 本轮可编排的选手名单（未淘汰、未提前晋级、未退赛） */
   E.manualPool = function (t, stage, groupIdx) {
     stage = stage || t.stages[t.currentStage];
+    var deadM = E.droppedMap(t);
     if (stage.type === 'groups' && groupIdx != null && stage.groups && stage.groups[groupIdx]) {
       var g = stage.groups[groupIdx];
       return g.players.filter(function (id) {
         return (stage.eliminated || []).indexOf(id) < 0 &&
-          (stage.clinched || []).indexOf(id) < 0;
+          (stage.clinched || []).indexOf(id) < 0 && !deadM[id];
       });
     }
     return E.aliveInStage(t, stage).slice();
   };
 
   /** 小组赛：还有哪些组需要（且能）编排本轮 —— 手动编排时界面靠它列组 */
-  E.groupArrangePending = function (stage) {
+  E.groupArrangePending = function (stage, t) {
     var out = [];
     if (!stage || stage.type !== 'groups') return out;
+    var deadG = t ? E.droppedMap(t) : {};
     (stage.groups || []).forEach(function (g, gi) {
       if (g.finished) return;
       var alive = (g.players || []).filter(function (id) {
-        return (stage.eliminated || []).indexOf(id) < 0 && (stage.clinched || []).indexOf(id) < 0;
+        return (stage.eliminated || []).indexOf(id) < 0 &&
+          (stage.clinched || []).indexOf(id) < 0 && !deadG[id];
       });
       if (alive.length >= 2) out.push({ idx: gi, name: g.name, count: alive.length });
     });
@@ -3540,6 +3798,14 @@
       if (dCl > 0) extraMsg += '；本轮新增 ' + dCl + ' 人提前晋级';
       if (dEl > 0) extraMsg += '；本轮新增 ' + dEl + ' 人被淘汰';
     }
+
+    // 小组赛：每次结算完一轮都要重算「哪些组已经打完」，
+    // 否则 g.finished 永远为 false → 阶段不结束、生成按钮空转
+    if (stage.type === 'groups') {
+      E.refreshGroupFinished(t, stage);
+      var doneG = (stage.groups || []).filter(function (g) { return g.finished; }).length;
+      if (doneG) extraMsg += '（已结束 ' + doneG + '/' + stage.groups.length + ' 组）';
+    }
     return { ok: true, msg: '本轮已完成' + extraMsg };
   };
 
@@ -3577,7 +3843,12 @@
 
     var plan = E.plannedRounds(stage, (stage.participants || []).length);
     if (plan === null) return false;
-    return stage.roundsData.length >= plan;
+    if (stage.roundsData.length < plan) return false;
+    // ★「轮次排满」不等于「比赛打完」：循环赛 / 瑞士轮是一次性把余下轮次都排出来的，
+    //   以前这里只看轮次数，导致刚生成对阵就判阶段结束（赛季会立刻把没打完的赛事算进积分）。
+    //   现在要求最后一轮的每一场都有结果（轮空 / 空桌不算）。
+    var lastRd = stage.roundsData[stage.roundsData.length - 1];
+    return !!E.roundComplete(t, stage, lastRd).ok;
   };
 
   // 标记小组结束
@@ -3697,8 +3968,23 @@
       }
     }
 
+    // 退赛 / 取消资格的人、以及一场都没打就被塞进名单的人，一律排最后：
+    // 前者没有比赛资格，后者没有成绩可比（以前都是 0 负，会被排到第 2 名甚至挤进晋级名单）
+    var dead = E.droppedMap(t);
+    var played = {};
+    rds.forEach(function (rd) {
+      (rd.matches || []).forEach(function (x) {
+        if (x.voided) return;
+        // 轮空也算「出场过」（只排到一次轮空的人也有成绩，不能当成没打）
+        if (x.playerA) played[x.playerA] = 1;
+        if (x.playerB) played[x.playerB] = 1;
+      });
+    });
+    function outOfGame(id) { return (dead[id] || !played[id]) ? 1 : 0; }
     var ids = Object.keys(lossCount);
     ids.sort(function (a, b) {
+      var oa = outOfGame(a), ob = outOfGame(b);
+      if (oa !== ob) return oa - ob;
       if (lossCount[a] !== lossCount[b]) return lossCount[a] - lossCount[b];
       if (lastWin[a] !== lastWin[b]) return lastWin[b] - lastWin[a];
       return E.seedOf(t, a) - E.seedOf(t, b);
@@ -3729,12 +4015,11 @@
     }
 
     // 有季军争夺战时，把这两人固定到第 3、4 位
+    // （必须先过滤再插入：先 splice 靠前的再 splice 之前的索引会失效，造成同一人出现两次）
     if (third) {
       var tw = third.result.winner === 'A' ? third.playerA : third.playerB;
       var tl = third.result.winner === 'A' ? third.playerB : third.playerA;
-      var i1 = ids.indexOf(tw), i2 = ids.indexOf(tl);
-      if (i2 >= 0) ids.splice(i2, 1);
-      if (i1 >= 0) ids.splice(i1, 1);
+      ids = ids.filter(function (x) { return x !== tw && x !== tl; });
       ids.splice(2, 0, tw, tl);
     }
 
@@ -4621,9 +4906,11 @@
     }
 
     // 已被淘汰的人（提前淘汰 / 按名次裁人）一律不晋级，
-    // 否则「全部晋级」或「按积分线」会把输够场数的人又带进下一阶段
+    // 否则「全部晋级」或「按积分线」会把输够场数的人又带进下一阶段；
+    // 已退赛 / 取消资格的人同样不能晋级（否则下一阶段名单里会多出打不了的人）
+    var deadAdv = E.droppedMap(t);
     advanced = advanced.filter(function (id) {
-      return (stage.eliminated || []).indexOf(id) < 0;
+      return (stage.eliminated || []).indexOf(id) < 0 && !deadAdv[id];
     });
 
     // 提前晋级者已用战绩锁定席位：不论晋级方式（人数线 / 积分线）如何，
@@ -4861,13 +5148,37 @@
   };
 
   /* ============ 回退 ============ */
+  /**
+   * 记一步回退快照。
+   * v2.6.1：快照瘦身 —— 以前每次操作都把 players + 全部 stages 深拷贝一遍（上限 200 条），
+   *   这些快照随赛事一起写进 localStorage，128 人以上的比赛 30 次操作就能把 5MB 配额撑爆，
+   *   之后每次保存都失败但界面还说「已保存」。
+   *   现在：
+   *     · 只留最近 30 步（回退栈本来也只是「手滑救一下」）；
+   *     · players 只在内容真的变了时才记（选手名单很少改，省下大头）；
+   *     · 保留 seed 用来复现抽签。
+   */
+  E.SNAP_LIMIT = 30;
   E.snapshot = function (t) {
-    var snap = U.clone({
-      stages: t.stages, currentStage: t.currentStage, status: t.status,
-      players: t.players, seed: t.seed
-    });
+    if (!t) return;
+    if (!Array.isArray(t.history)) t.history = [];
+    var stages = U.clone(t.stages || []);
+    var players = t.players || [];
+    var sig = (function () {
+      try { return JSON.stringify(players); } catch (e) { return ''; }
+    })();
+    var last = t.history[t.history.length - 1];
+    var snap = {
+      stages: stages,
+      currentStage: t.currentStage,
+      status: t.status,
+      seed: t.seed,
+      playersSig: sig,
+      // 名单没变就不重复存（回退时沿用当前名单 —— 名单本身很少被回退）
+      players: (last && last.playersSig === sig) ? null : U.clone(players)
+    };
     t.history.push(snap);
-    if (t.history.length > 200) t.history.shift();
+    while (t.history.length > E.SNAP_LIMIT) t.history.shift();
   };
 
   E.rollback = function (t) {
@@ -4876,7 +5187,7 @@
     t.stages = snap.stages;
     t.currentStage = snap.currentStage;
     t.status = snap.status;
-    t.players = snap.players;
+    if (snap.players) t.players = snap.players;
     t.seed = snap.seed;
     return { ok: true, msg: '已回退一步' };
   };
@@ -4966,12 +5277,19 @@
         seen[r.id] = 1;
         var a = agg[r.id] || { wins: r.wins, losses: r.losses, draws: r.draws, matches: r.matches };
         out.push({
-          id: r.id, name: r.name, rank: out.length + 1,
+          id: r.id, name: r.name,
+          // v2.6.1：整站名次沿用最后一个阶段的名次（并列保留），
+          //   以前用 out.length+1 强行拆成 1/2/3/4，阶段榜并列、积分榜却不并列
+          rank: (r.rank || 0),
           wins: a.wins, losses: a.losses, draws: a.draws, matches: a.matches, lastStage: k,
           adv: advOf(r.id)
         });
       });
     }
+    // 没拿到阶段名次的（只在前面的阶段出现过）接在最后，按出现顺序补名次
+    var maxRank = 0;
+    out.forEach(function (r) { if (r.rank > maxRank) maxRank = r.rank; });
+    out.forEach(function (r) { if (!(r.rank > 0)) r.rank = ++maxRank; });
     return out;
   };
 
@@ -5259,8 +5577,13 @@
     var base = (t && t.ptsRule) || null;
     if (!base) return null;
     if (si !== null && si !== undefined) {
-      var ov = (base.stageOv || {})[String(si)];
-      if (ov && typeof ov === 'object') return ov;
+      var ov = base.stageOv || {};
+      var st = (t.stages || [])[si];
+      var idk = (st && st.id) ? String(st.id) : '';
+      // v2.6.1：阶段独立规则以「阶段 id」为 key（以前用下标，删/复制一个阶段后面全串位）。
+      //   老存档只存了下标 key，所以两种都要认：先找 id，再退回下标。
+      if (idk && ov[idk] && typeof ov[idk] === 'object') return ov[idk];
+      if (ov[String(si)] && typeof ov[String(si)] === 'object') return ov[String(si)];
     }
     return base;
   };
@@ -5315,8 +5638,9 @@
       var res = (u.si === null) ? E.tournamentResults(t) : E.stageResults(t, u.si);
       if (!res.length) { out.warnings.push(u.label + '：还没有可用名次'); return; }
 
+      // 站内一律按选手 id 聚合：以前用姓名做 key，同名的两个选手会被合并成一行、分数还叠加
       var parts = {};
-      res.forEach(function (r) { parts[E.nameKey(r.name) || ('id:' + r.id)] = 1; });
+      res.forEach(function (r) { parts['id:' + r.id] = 1; });
 
       // 不叠加：该阶段重新起算（默认只重置进入该阶段的人）
       if (!stackOn) {
@@ -5328,10 +5652,10 @@
       }
 
       res.forEach(function (r) {
-        var key = E.nameKey(r.name) || ('id:' + r.id);
+        var key = 'id:' + r.id;
         var row = rows[key];
         if (!row) {
-          row = rows[key] = { key: key, name: r.name, id: r.id, total: 0, stops: 0, best: 0, units: {} };
+          row = rows[key] = { key: key, name: r.name, id: r.id, nameKey: E.nameKey(r.name), total: 0, stops: 0, best: 0, units: {} };
           order.push(key);
         }
         row.id = r.id;
@@ -5427,8 +5751,10 @@
       if (!tp.on) { warnings.push(u.label + '：没有启用赛事积分榜，本站暂不计分'); return; }
       if (!tp.rows.length) { warnings.push(u.label + '：还没有可用名次'); return; }
 
+      // 赛季是跨赛事口径：这里按姓名认人（全角空格 / 大小写 / 多余空白都归一化），
+      // 站内已经按 id 聚合过，所以同名选手不会在站内被吞并
       var parts = {};
-      tp.rows.forEach(function (r) { parts[r.key] = 1; });
+      tp.rows.forEach(function (r) { parts[r.nameKey || E.nameKey(r.name) || r.key] = 1; });
 
       // 不叠加：这一站重新起算（默认只重置参加这一站的人）
       if (!srule.stack) {
@@ -5440,10 +5766,11 @@
       }
 
       tp.rows.forEach(function (r) {
-        var row = rows[r.key];
+        var skey = r.nameKey || E.nameKey(r.name) || r.key;
+        var row = rows[skey];
         if (!row) {
-          row = rows[r.key] = { key: r.key, name: r.name, id: r.id, total: 0, stops: 0, best: 0, units: {} };
-          order.push(r.key);
+          row = rows[skey] = { key: skey, name: r.name, id: r.id, total: 0, stops: 0, best: 0, units: {} };
+          order.push(skey);
         }
         row.id = r.id;
         row.total += r.total;
@@ -5491,6 +5818,7 @@
       var res = (u.si === null) ? E.tournamentResults(t) : E.stageResults(t, u.si);
       if (!res.length) { warnings.push(u.label + '：还没有可用名次'); return; }
 
+      // 赛季是跨赛事口径：按姓名认人（站内已按 id 聚合，同名选手在站内不会被吞并）
       var parts = {};
       res.forEach(function (r) { parts[E.nameKey(r.name) || ('id:' + r.id)] = 1; });
 

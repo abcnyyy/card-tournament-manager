@@ -601,6 +601,12 @@
         else if (m.bracket === 'W') wW.push(alone);
         else if (m.lbHalf === 'T') lTopW.push(alone);
         else lBotW.push(alone);
+        // v2.6.1：轮空也算「这一轮已经消化掉的人」。
+        // 以前只有真打的比赛才写 lbTopPlayed/lbBotPlayed，轮空的人留在 pending 里没被清掉，
+        // 下一轮就会同时出现在「新的败者组对局」和「旧的待注入」里 → 同一轮出场两次。
+        if (m.bracket === 'L') {
+          if (m.lbHalf === 'T') lbTopPlayed[alone] = 1; else lbBotPlayed[alone] = 1;
+        }
         continue;
       }
       if (drawn(m)) {
