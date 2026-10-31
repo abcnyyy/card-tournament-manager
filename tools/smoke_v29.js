@@ -280,21 +280,22 @@ async function waitReady() {
   const hist = await tabInfo();
   ok('已结束的比赛仍然显示完整对阵表', hist.tab === true && hist.done >= 2, hist);
   ok('每行都能看到「第 N 场」', hist.nos.filter(x => /第 \d+ 场/.test(x)).length === hist.n, hist.nos);
-  ok('对阵表不是 noprint（打印时会打出来）', hist.noPrint === false);
+  ok('对阵表不是 noprint', hist.noPrint === false);
+  // v2.6.1：导出不再走打印，样式表里的 @media print 已整段删除。
+  // 这条断言改成「打印样式确实没了」，防止以后有人把打印路线又加回来。
   const printCss = await ev(`(function(){
     var hit=0;
     for (var i=0;i<document.styleSheets.length;i++){
       try{
         var rs=document.styleSheets[i].cssRules;
         for (var j=0;j<rs.length;j++){
-          if (rs[j].media && String(rs[j].media.mediaText).indexOf('print')>=0 &&
-              String(rs[j].cssText).indexOf('tt-btn')>=0) hit++;
+          if (rs[j].media && String(rs[j].media.mediaText).indexOf('print')>=0) hit++;
         }
       }catch(e){}
     }
     return hit;
   })()`);
-  ok('打印样式里把录入控件藏起来了', printCss > 0, printCss);
+  ok('样式表里已没有 @media print（导出不再依赖打印）', printCss === 0, printCss);
   await shot('v29_hist.png');
 
   /* ================= 5. 手机档 ================= */

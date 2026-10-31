@@ -132,36 +132,23 @@ ipcMain.handle('tms:saveBinary', async function (ev, payload) {
   }
 });
 
-ipcMain.handle('tms:savePDF', async function (ev, payload) {
-  payload = payload || {};
-  var filename = safeName(payload.filename || '导出.pdf');
-  if (!/\.pdf$/i.test(filename)) filename += '.pdf';
-  var win = BrowserWindow.fromWebContents(ev.sender) || mainWindow;
+// 打开导出的文件夹（导出成功后提示里用）
+// v2.6.1：只允许打开「本应用写过的文件」，不接受任意路径（防止被注入的页面拿它探测文件系统）
+ipcMain.handle('tms:reveal', function (ev, p) {
   try {
-    var data = await win.webContents.printToPDF({
-      printBackground: true,
-      pageSize: 'A4',
-      margins: { top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 },
-      preferCSSPageSize: false
-    });
-    var r = await dialog.showSaveDialog(win, {
-      title: '导出 PDF',
-      defaultPath: path.join(app.getPath('documents'), filename),
-      filters: filterOf('pdf'),
-      properties: ['createDirectory', 'showOverwriteConfirmation']
-    });
-    if (r.canceled || !r.filePath) return { ok: false, canceled: true, msg: '已取消导出' };
-    fs.writeFileSync(r.filePath, data);
-    return { ok: true, path: r.filePath, msg: 'PDF 已保存到：' + r.filePath };
-  } catch (e) {
-    return { ok: false, msg: '导出 PDF 失败：' + e.message };
-  }
+    var full = path.resolve(String(p || ''));
+    var inDocs = path.resolve(app.getPath('documents'));
+    var inHome = path.resolve(app.getPath('home'));
+    if (full.indexOf(inDocs) !== 0 && full.indexOf(inHome) !== 0) return false;
+    if (!fs.existsSync(full)) return false;
+    shell.showItemInFolder(full);
+    return true;
+  } catch (e) { return false; }
 });
 
-// 打开导出的文件夹（导出成功后提示里用）
-ipcMain.handle('tms:reveal', function (ev, p) {
-  try { shell.showItemInFolder(p); return true; } catch (e) { return false; }
-});
+/* 注意：这里以前还有一个 tms:savePDF（走 webContents.printToPDF）。
+   v2.5 起导出改成「自己排版 → 自己拼 PDF」，那条路已经没人调用，
+   为防止以后有人误接回打印路线，v2.6.1 直接删掉。 */
 
 app.whenReady().then(function () {
   createWindow();

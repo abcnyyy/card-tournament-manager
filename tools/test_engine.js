@@ -245,13 +245,15 @@ section('单败淘汰推进');
   });
   E.generateRound(t);
   ok('R3 决赛1场', t.stages[0].roundsData[2].matches.length === 1);
-  ok('阶段判定结束', E.stageFinished(t, t.stages[0]));
+  // v2.6.1：轮次「排满」不等于比赛「打完」——决赛还没录，阶段不算结束
+  ok('决赛未打时不判阶段结束', !E.stageFinished(t, t.stages[0]));
 
   // 决赛也要录入
   t.stages[0].roundsData[2].matches.forEach(m => {
     m.games.push({ w: 'A' }, { w: 'A' });
     E.evaluate(m, t.format, t.stages[0].tie);
   });
+  ok('阶段判定结束（决赛录完）', E.stageFinished(t, t.stages[0]));
 
   const st = E.standings(t, { stageIndex: 0 });
   ok('冠军为 P1', st[0].name === 'P1', st[0].name);

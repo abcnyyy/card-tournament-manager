@@ -8,6 +8,9 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "test": "node tools/run_tests.js",
+    "test:smoke": "node tools/run_tests.js --smoke",
+    "test:all": "node tools/run_tests.js --all",
     "dist:exe": "electron-builder --win --x64",
     "dist:portable": "electron-builder --win --x64 --config.win.target=portable",
     "cap:add": "cap add android",

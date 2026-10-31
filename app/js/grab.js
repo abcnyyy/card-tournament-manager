@@ -17,7 +17,8 @@
   var TMS = window.TMS = window.TMS || {};
   var G = TMS.grab = {};
 
-  var MAX_SIDE = 16000;   // Chromium canvas 上限约 16k，留点余量
+  var MAX_SIDE = 16000;   // Chromium canvas 单边上限约 16k，留点余量
+  var MAX_AREA = 4000 * 4000;  // 总像素上限：16000×16000 会吃掉 1GB 显存/内存，手机必然崩
 
   /* 收集当前页面所有样式表（同源，读得到 cssRules） */
   function styleText() {
@@ -92,10 +93,14 @@
     var width = opts.width || 1180;
     var scale = opts.scale || 2;
     var pack = measure(html, width, !!opts.shrink);
-    // 太高就降采样，别撞 canvas 上限
-    var maxScaleByH = MAX_SIDE / pack.height;
-    var maxScaleByW = MAX_SIDE / pack.width;
-    scale = Math.max(0.5, Math.min(scale, maxScaleByH, maxScaleByW));
+    // 太高就降采样，别撞 canvas 上限。
+    // v2.6.1：以前写成 Math.max(0.5, …)，把下限钉死在 0.5 —— 内容高 4 万 px 时
+    // 画布还是 2 万 px（超 16384 上限），Chromium 会静默给一张空白图。
+    // 现在按「单边」和「总像素」两个上限一起压，允许低于 0.5（宁可糊一点也不能空白）。
+    var bySide = Math.min(MAX_SIDE / pack.height, MAX_SIDE / pack.width);
+    var byArea = Math.sqrt(MAX_AREA / Math.max(1, pack.width * pack.height));
+    scale = Math.min(scale, bySide, byArea);
+    scale = Math.max(0.05, scale);
     return loadImage(buildSVG(pack)).then(function (img) {
       var cv = document.createElement('canvas');
       cv.width = Math.max(1, Math.ceil(pack.width * scale));

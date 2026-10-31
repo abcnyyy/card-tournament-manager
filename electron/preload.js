@@ -21,9 +21,7 @@ contextBridge.exposeInMainWorld('tmsNative', {
       filename: filename, base64: base64, mime: mime
     });
   },
-  savePDF: function (filename) {
-    return ipcRenderer.invoke('tms:savePDF', { filename: filename });
-  },
+  // v2.6.1：printToPDF 那条路已彻底删除（导出统一走 grab + pdfgen 自己拼文件）
   reveal: function (p) {
     return ipcRenderer.invoke('tms:reveal', p);
   }

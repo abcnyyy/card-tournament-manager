@@ -3,9 +3,6 @@ package com.local.tournament;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
-import android.print.PrintAttributes;
-import android.print.PrintDocumentAdapter;
-import android.print.PrintManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
@@ -122,34 +119,6 @@ public class MainActivity extends BridgeActivity {
             });
         }
 
-        /** 系统打印面板（可「另存为 PDF」） */
-        @JavascriptInterface
-        public void printPage() {
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        WebView wv = getBridge().getWebView();
-                        PrintManager pm = (PrintManager) getSystemService(PRINT_SERVICE);
-                        String job = "赛事编排系统";
-                        PrintDocumentAdapter adapter;
-                        if (android.os.Build.VERSION.SDK_INT >= 21) {
-                            adapter = wv.createPrintDocumentAdapter(job);
-                        } else {
-                            adapter = wv.createPrintDocumentAdapter();
-                        }
-                        PrintAttributes attrs = new PrintAttributes.Builder()
-                                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
-                                .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
-                                .build();
-                        pm.print(job, adapter, attrs);
-                    } catch (Exception e) {
-                        toast("打开打印失败：" + e.getMessage());
-                    }
-                }
-            });
-        }
-
         /**
          * 保存二进制文件（JPG / PDF）：页面传 base64，这里解码后写入用户选的位置。
          * 全程不经过系统打印面板 —— 点一下就出文件。
@@ -186,11 +155,11 @@ public class MainActivity extends BridgeActivity {
             });
         }
 
-        /** 安卓没有「直接存 PDF」的接口，统一走打印面板 */
-        @JavascriptInterface
-        public void savePDF(final String filename) {
-            printPage();
-        }
+        /**
+         * v2.6.1：打印面板（printPage / savePDF）已彻底删除。
+         * 导出 PDF 一律由页面自己拼（grab + pdfgen），再走 saveBase64 落盘，
+         * 不再有「另存为 PDF 要靠系统打印」这条老路。
+         */
 
         @JavascriptInterface
         public String appVersion() {

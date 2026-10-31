@@ -336,14 +336,14 @@ async function waitReady() {
     var p=document.querySelector('.sub-panel');
     if(!p) return null;
     return {tag:/单独设置/.test(document.getElementById('view-setup').innerText),
-      mode:(p.querySelector('[data-bind="ptsRule.stageOv.0.mode"]')||{}).value,
+      mode:(p.querySelector('[data-bind^="ptsRule.stageOv."][data-bind$=".mode"]')||{}).value,
       tiers:p.querySelectorAll('.tier-row').length};
   })()`);
   ok('展开阶段独立规则面板', !!ovPanel, ovPanel);
   ok('该阶段标记为「单独设置」', ovPanel && ovPanel.tag === true);
   ok('独立规则默认复制赛事规则（按名次 + 8 档以上）',
     ovPanel && ovPanel.mode === 'rank' && ovPanel.tiers >= 8, ovPanel);
-  await pick('[data-bind="ptsRule.stageOv.0.mode"]', 'win');
+  await pick('[data-bind^="ptsRule.stageOv."][data-bind$=".mode"]', 'win');
   await sleep(500);
   await view('standing');
   await sleep(450);
