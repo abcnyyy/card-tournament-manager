@@ -51,6 +51,14 @@ const BUILD = `(function(){
   await ev(`window.__errs=[];window.addEventListener('error',function(e){window.__errs.push(String(e.message))});
     (function(){var oe=console.error;console.error=function(){window.__errs.push([].slice.call(arguments).join(' '));oe.apply(console,arguments)}})();'ok'`);
 
+  // 等 engine / store 都挂好：connect 只等到「TMS 是对象」（core.js 挂上就算），
+  // 打包产物里偶尔 engine.js 还没执行完就去造数据，会报 TMS.engine 未定义
+  for (let i = 0; i < 60; i++) {
+    const ready = await ev('!!(window.TMS && TMS.engine && TMS.engine.ensureParticipants && TMS.store && TMS.model)');
+    if (ready) break;
+    await sleep(150);
+  }
+
   console.log('\n=== 1. 设置页写入回合数 ===');
   await ev(BUILD);
   await ev('location.reload()'); await sleep(1800);
