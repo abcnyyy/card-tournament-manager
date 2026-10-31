@@ -27,7 +27,7 @@
     "@capacitor/core": "^6.1.2"
   },
   "optionalDependencies": {
-    "@capacitor/cli": "^6.1.2"
+    "@capacitor/cli": "^8.5.3"
   },
   "build": {
     "appId": "com.local.tournament",
