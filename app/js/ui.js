@@ -5582,8 +5582,14 @@
       langBtn.textContent = I18n.otherLabel();
       langBtn.title = I18n.isEn() ? '切换到中文' : 'Switch to English';
       langBtn.addEventListener('click', function () {
-        I18n.set(I18n.isEn() ? 'zh' : 'en');
-        location.reload();
+        var next = I18n.isEn() ? 'zh' : 'en';
+        I18n.set(next);
+        // 刷新时把语言挂到 hash 上一起带过去：localStorage 落盘慢半拍时，
+        // 新页面也能凭 hash 立刻切对语言（踩过：只靠 localStorage 会「点一下没反应」）。
+        setTimeout(function () {
+          try { location.hash = 'lang=' + next; } catch (e) {}
+          location.reload();
+        }, 30);
       });
     }
 

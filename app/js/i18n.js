@@ -42,7 +42,20 @@
     return '';
   }
 
-  I.lang = readLang() || 'zh';
+  /* 语言也可以从 URL 带过来：切换语言时先写 localStorage 再刷新，但 localStorage 的落盘
+     在某些 Chromium 版本里会慢半拍（表现为「点一下没反应、再点才切」），
+     所以刷新时把语言挂在 hash 上，新页面优先认 hash，再顺手写回 localStorage。 */
+  function langFromUrl() {
+    try {
+      var s = String((global.location && (global.location.hash || '')) + '&' +
+        (global.location && (global.location.search || '')) + '');
+      var m = /[?#&]lang=(zh|en)(?:&|$)/.exec(s);
+      return m ? m[1] : '';
+    } catch (e) { return ''; }
+  }
+  var fromUrl = langFromUrl();
+  I.lang = fromUrl || readLang() || 'zh';
+  if (fromUrl) { try { global.localStorage && global.localStorage.setItem(KEY, fromUrl); } catch (e) {} }
   I.isEn = function () { return I.lang === 'en'; };
   I.otherLabel = function () { return I.isEn() ? '中文' : 'EN'; };
 

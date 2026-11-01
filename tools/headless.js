@@ -169,11 +169,17 @@ async function connect(port) {
           sock.send(JSON.stringify({ id: mid, method, params }));
         });
       };
-      // 等页面脚本执行完（TMS 挂载完成）再交还控制权，避免第一句就 ReferenceError
+      // 等页面脚本执行完（TMS 挂载完成）并且 readyState 变成 complete 再交还控制权。
+      // 只等 typeof TMS 会在 core.js 刚执行时就返回，那时 ui.js 的 boot() 还没绑事件，
+      // 抢在前面点按钮会出现「点了没反应」的假象（踩过，语言切换按钮就中招过一次）。
       for (let i = 0; i < 100; i++) {
         try {
-          const r = await send('Runtime.evaluate', { expression: 'typeof TMS', returnByValue: true });
-          if (r.result && r.result.value === 'object') break;
+          const r = await send('Runtime.evaluate', {
+            expression: "document.readyState + '|' + (typeof TMS)",
+            returnByValue: true
+          });
+          const v = String((r.result && r.result.value) || '');
+          if (v === 'complete|object') break;
         } catch (e) {}
         await new Promise(r2 => setTimeout(r2, 150));
       }
