@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -6,31 +6,31 @@
 <meta name="theme-color" content="#F4F5F7">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>鍗＄墝璧涗簨缂栨帓</title>
+<title>卡牌赛事编排</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:;">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 <div class="app">
 
-  <!-- ---------- 宸︿晶瀵艰埅锛堟墜鏈虹鍙橀《閮ㄦí婊?chips锛?---------- -->
+  <!-- ---------- 左侧导航（手机端变顶部横滑 chips） ---------- -->
   <aside class="sidebar noprint">
     <div class="brand">
       <div class="brand-logo">CT</div>
       <div>
-        <b>鍗＄墝璧涗簨缂栨帓</b>
-        <div class="brand-sub">鏈湴绂荤嚎 路 鏃犻渶鑱旂綉</div>
+        <b>卡牌赛事编排</b>
+        <div class="brand-sub">本地离线 · 无需联网</div>
       </div>
     </div>
 
     <nav class="tabs">
-      <button class="tab" data-view="list"><span class="tno">0</span><span class="tlabel">璧涗簨鍒楄〃</span></button>
-      <button class="tab active" data-view="setup"><span class="tno">1</span><span class="tlabel">璧涗簨璁剧疆</span></button>
-      <button class="tab" data-view="players"><span class="tno">2</span><span class="tlabel">閫夋墜绠＄悊</span></button>
-      <button class="tab" data-view="matches"><span class="tno">3</span><span class="tlabel">瀵归樀涓庡綍鍏?/span></button>
-      <button class="tab" data-view="standing"><span class="tno">4</span><span class="tlabel">鎺掑悕</span></button>
-      <button class="tab" data-view="export"><span class="tno">5</span><span class="tlabel">瀵煎嚭</span></button>
-      <button class="tab" data-view="season"><span class="tno">6</span><span class="tlabel">璧涘绉垎</span></button>
+      <button class="tab" data-view="list"><span class="tno">0</span><span class="tlabel">赛事列表</span></button>
+      <button class="tab active" data-view="setup"><span class="tno">1</span><span class="tlabel">赛事设置</span></button>
+      <button class="tab" data-view="players"><span class="tno">2</span><span class="tlabel">选手管理</span></button>
+      <button class="tab" data-view="matches"><span class="tno">3</span><span class="tlabel">对阵与录入</span></button>
+      <button class="tab" data-view="standing"><span class="tno">4</span><span class="tlabel">排名</span></button>
+      <button class="tab" data-view="export"><span class="tno">5</span><span class="tlabel">导出</span></button>
+      <button class="tab" data-view="season"><span class="tno">6</span><span class="tlabel">赛季积分</span></button>
     </nav>
 
     <div class="sidebar-foot" id="sideFoot">v3.0</div>
@@ -39,13 +39,13 @@
   <div class="content">
 
     <div class="topbar">
-      <div class="sub" id="topbarSub">鏈垱寤鸿禌浜?/div>
+      <div class="sub" id="topbarSub">未创建赛事</div>
       <div class="right noprint">
         <button class="btn" id="btnLang">EN</button>
-        <button class="btn" id="btnList">璧涗簨鍒楄〃</button>
-        <button class="btn" id="btnNew">鏂板缓璧涗簨</button>
-        <button class="btn" id="btnSave">淇濆瓨</button>
-        <button class="btn" id="btnLoad">杞藉叆瀛樻。</button>
+        <button class="btn" id="btnList">赛事列表</button>
+        <button class="btn" id="btnNew">新建赛事</button>
+        <button class="btn" id="btnSave">保存</button>
+        <button class="btn" id="btnLoad">载入存档</button>
       </div>
     </div>
 
