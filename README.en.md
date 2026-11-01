@@ -51,15 +51,15 @@ Swiss, single elimination, double elimination, round robin and group stages — 
 
 > More in [docs/](docs/). All screenshots come from the real app.
 
-## 🚀 Download (v2.6)
+## 🚀 Download (v3.0)
 
 Grab it from **[Releases](https://github.com/abcnyyy/card-tournament-manager/releases/latest)**, or use the direct links:
 
 | Platform | File | Size | Notes |
 |---|---|---|---|
-| Windows portable | [card-tournament-manager-2.6.0-portable.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.6/card-tournament-manager-2.6.0-portable.exe) | 77 MB | Single exe, double-click to run, keeps your settings, USB-stick friendly |
-| Windows installer | [card-tournament-manager-2.6.0-setup.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.6/card-tournament-manager-2.6.0-setup.exe) | 77 MB | Installs locally, adds Start-menu / desktop shortcuts |
-| Android | [card-tournament-manager-2.6.0.apk](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.6/card-tournament-manager-2.6.0.apk) | 3.8 MB | Phone / tablet, portrait-friendly |
+| Windows portable | [card-tournament-manager-3.0.0-portable.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v3.0/card-tournament-manager-3.0.0-portable.exe) | 77 MB | Single exe, double-click to run, keeps your settings, USB-stick friendly |
+| Windows installer | [card-tournament-manager-3.0.0-setup.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v3.0/card-tournament-manager-3.0.0-setup.exe) | 77 MB | Installs locally, adds Start-menu / desktop shortcuts |
+| Android | [card-tournament-manager-3.0.0.apk](https://github.com/abcnyyy/card-tournament-manager/releases/download/v3.0/card-tournament-manager-3.0.0.apk) | 3.8 MB | Phone / tablet, portrait-friendly |
 
 > If Windows SmartScreen blocks the first run, choose "More info → Run anyway" (normal for unsigned apps).
 > Full instructions: [使用说明.en.md](使用说明.en.md) (English) · [使用说明.md](使用说明.md) (中文).

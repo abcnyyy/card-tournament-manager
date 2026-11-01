@@ -1,7 +1,7 @@
-{
+﻿{
   "name": "tournament-scheduler",
-  "version": "2.6.0",
-  "description": "卡牌赛事编排 —— 瑞士轮 / 单败 / 双败 / 循环赛 / 多阶段小组赛",
+  "version": "3.0.0",
+  "description": "鍗＄墝璧涗簨缂栨帓 鈥斺€?鐟炲＋杞?/ 鍗曡触 / 鍙岃触 / 寰幆璧?/ 澶氶樁娈靛皬缁勮禌",
   "main": "electron/main.js",
   "author": "",
   "license": "MIT",
@@ -33,7 +33,7 @@
   },
   "build": {
     "appId": "com.local.tournament",
-    "productName": "卡牌赛事编排",
+    "productName": "鍗＄墝璧涗簨缂栨帓",
     "directories": {
       "output": "dist",
       "buildResources": "build"

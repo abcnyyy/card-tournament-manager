@@ -49,15 +49,15 @@
 
 > 更多截图见 [docs/](docs/)。所有界面均为本项目实际运行截图。
 
-## 🚀 下载（v2.6）
+## 🚀 下载（v3.0）
 
 前往 **[Releases](https://github.com/abcnyyy/card-tournament-manager/releases/latest)** 页面下载，或直接点下面的链接：
 
 | 平台 | 文件 | 大小 | 说明 |
 |---|---|---|---|
-| Windows 绿色版 | [card-tournament-manager-2.6.0-portable.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.6/card-tournament-manager-2.6.0-portable.exe) | 77 MB | 单个 exe，双击即用，无需安装，可放 U 盘 |
-| Windows 安装版 | [card-tournament-manager-2.6.0-setup.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.6/card-tournament-manager-2.6.0-setup.exe) | 77 MB | 安装到本机，生成开始菜单 / 桌面快捷方式 |
-| Android | [card-tournament-manager-2.6.0.apk](https://github.com/abcnyyy/card-tournament-manager/releases/download/v2.6/card-tournament-manager-2.6.0.apk) | 3.8 MB | 手机 / 平板安装，界面自适应竖屏 |
+| Windows 绿色版 | [card-tournament-manager-3.0.0-portable.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v3.0/card-tournament-manager-3.0.0-portable.exe) | 77 MB | 单个 exe，双击即用，无需安装，可放 U 盘 |
+| Windows 安装版 | [card-tournament-manager-3.0.0-setup.exe](https://github.com/abcnyyy/card-tournament-manager/releases/download/v3.0/card-tournament-manager-3.0.0-setup.exe) | 77 MB | 安装到本机，生成开始菜单 / 桌面快捷方式 |
+| Android | [card-tournament-manager-3.0.0.apk](https://github.com/abcnyyy/card-tournament-manager/releases/download/v3.0/card-tournament-manager-3.0.0.apk) | 3.8 MB | 手机 / 平板安装，界面自适应竖屏 |
 
 > Windows 版首次运行若被 SmartScreen 拦下，点「更多信息 → 仍要运行」即可（未签名应用都这样）。
 > 完整操作说明见仓库内的 [使用说明.md](使用说明.md)。
