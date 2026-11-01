@@ -107,6 +107,7 @@
       '<button class="btn primary" id="modalOk">' + esc(opts.okText || '确定') + '</button>' +
       '</div></div>';
     wrap.style.display = 'block';
+    I18n.apply(wrap);        // 弹窗里的标题 / 说明 / 按钮也要跟着语言走
 
     function close() { wrap.style.display = 'none'; wrap.innerHTML = ''; }
     function done(v) { close(); if (opts.onDone) opts.onDone(v); }
@@ -144,7 +145,7 @@
       el.id = 'toast';
       document.body.appendChild(el);
     }
-    el.textContent = text;
+    el.textContent = I18n.t(text);   // toast 文案走 i18n 字典（t() 不认识的会原样返回）
     el.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999;' +
       'border:3px solid #000;padding:10px 18px;font-weight:800;box-shadow:5px 5px 0 #000;max-width:85vw;' +
       (isError ? 'background:#000;color:#fff;' : 'background:#fff;color:#000;');
@@ -4007,6 +4008,7 @@
         sub.textContent = T.name + ' · ' + T.players.length + ' 名选手 · ' +
           T.stages.length + ' 个阶段' + (stg ? ' · 当前：' + stg.name + '（' + statusText(stg) + '）' : '');
       }
+      I18n.apply(sub);       // 顶栏摘要是 textContent 拼的，翻译要单独走一遍
     }
 
     if (!T && curView !== 'season') curView = 'list';
@@ -4025,7 +4027,11 @@
       standing: renderStanding, export: renderExport, season: renderSeason
     };
     var el = document.getElementById('view-' + curView);
-    if (el) { el.style.display = ''; el.innerHTML = map[curView](); }
+    if (el) {
+      el.style.display = '';
+      el.innerHTML = map[curView]();
+      I18n.apply(el);                  // 中英切换：渲染完整棵子树查表翻译
+    }
 
     // 每渲染一次重建比赛索引（计时器心跳、草稿回填直接查表，不用再全表线性扫）
     rebuildMatchIndex();
@@ -5569,6 +5575,17 @@
     document.getElementById('btnNew').addEventListener('click', function () { acts.newT(); });    document.getElementById('btnSave').addEventListener('click', function () { acts.saveT(); });
     document.getElementById('btnLoad').addEventListener('click', function () { acts.loadT(); });
     document.getElementById('btnList').addEventListener('click', function () { acts.goList(); });
+    // 中英切换：只切「界面语言」，不动数据（数据里没有语言字段）；
+    // 直接刷新最稳 —— 静态外壳、页签、导出文案全都重建一遍
+    var langBtn = document.getElementById('btnLang');
+    if (langBtn) {
+      langBtn.textContent = I18n.otherLabel();
+      langBtn.title = I18n.isEn() ? '切换到中文' : 'Switch to English';
+      langBtn.addEventListener('click', function () {
+        I18n.set(I18n.isEn() ? 'zh' : 'en');
+        location.reload();
+      });
+    }
 
     // 比分输入框按回车直接结算
     document.addEventListener('keydown', function (e) {
@@ -5962,6 +5979,10 @@
   /* ================= 启动 ================= */
   function boot() {
     S.migrateLegacy();
+    // 语言：<html lang> 与静态外壳（侧栏 / 顶栏 / 页签）先翻一遍，后面的 render 再翻视图
+    I18n.boot();
+    I18n.apply(document.querySelector('.sidebar'));
+    I18n.apply(document.querySelector('.topbar'));   // 顶栏那 4 个按钮也在静态 HTML 里
     T = S.load();          // 从当前 id 或索引首个载入
     if (T) {
       S.setCurrentId(T.id);
