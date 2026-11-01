@@ -1,0 +1,130 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>赛事编排系统 · 使用说明</title><style>
+* { box-sizing: border-box; }
+body { margin:0; background:#f5f5f5; color:#000;
+  font:16px/1.75 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+.page { max-width: 860px; margin: 0 auto; background:#fff; padding: 56px 64px 72px;
+  border-left:1px solid #000; border-right:1px solid #000; min-height:100vh; }
+h1 { font-size:30px; margin:0 0 6px; letter-spacing:.5px; border-bottom:4px solid #000; padding-bottom:14px; }
+h2 { font-size:21px; margin:40px 0 12px; padding-left:10px; border-left:6px solid #000; }
+h3 { font-size:17px; margin:26px 0 8px; }
+p { margin:10px 0; }
+ul,ol { margin:10px 0 10px 22px; padding:0; }
+li { margin:5px 0; }
+blockquote { margin:16px 0; padding:12px 16px; border-left:4px solid #000; background:#f2f2f2; }
+table { border-collapse:collapse; width:100%; margin:14px 0; font-size:15px; }
+th,td { border:1px solid #000; padding:7px 10px; text-align:left; vertical-align:top; }
+th { background:#000; color:#fff; font-weight:700; }
+tbody tr:nth-child(even) { background:#f7f7f7; }
+code { background:#eee; border:1px solid #ccc; padding:1px 5px; font-size:14px;
+  font-family:Consolas,"Courier New",monospace; }
+pre { background:#111; color:#fff; padding:14px 16px; overflow:auto; }
+pre code { background:none; border:none; color:#fff; }
+hr { border:none; border-top:2px solid #000; margin:32px 0; }
+strong { font-weight:800; }
+a { color:#000; text-decoration:underline; }
+@media print { body{background:#fff} .page{max-width:none;border:none;padding:0} h2{page-break-after:avoid} table{page-break-inside:avoid} }
+@media (max-width: 700px) { .page{padding:28px 20px;border:none} body{font-size:15px} h1{font-size:24px} }
+</style></head><body><div class="page"><h1>Card Tournament Manager · User Manual (v2.6)</h1>
+<p><strong>English</strong> · <a href="使用说明.md">中文</a></p>
+<blockquote>This is the English edition of the manual. The app itself is bilingual: click the <strong>EN / 中文</strong> button in the top bar to switch languages. The choice is remembered on this device, and English-language browsers start in English.</blockquote>
+<hr>
+<h2>Contents</h2>
+<ol><li><a href="#1-two-faces-webdesktop-and-mobile">Two faces: web/desktop and mobile</a></li><li><a href="#2-five-minute-quick-start">Five-minute quick start</a></li><li><a href="#3-setup-in-detail">Setup in detail</a></li><li><a href="#4-formats">Formats</a></li><li><a href="#5-multi-stage-events">Multi-stage events</a></li><li><a href="#6-players">Players</a></li><li><a href="#7-matches-and-score-entry">Matches and score entry</a></li><li><a href="#8-manual-pairing-and-redraws">Manual pairing and redraws</a></li><li><a href="#9-standings">Standings</a></li><li><a href="#10-exports">Exports</a></li><li><a href="#11-data-and-backups">Data and backups</a></li><li><a href="#12-faq">FAQ</a></li><li><a href="#13-points-tables-and-seasons">Points tables and seasons</a></li><li><a href="#14-version-history-summary">Version history (summary)</a></li></ol>
+<hr>
+<h2>1. Two faces: web/desktop and mobile</h2>
+<p>The same build runs in three places:</p>
+<table><thead><tr><th>Where</th><th>How</th><th>Notes</th></tr></thead><tbody><tr><td>Browser</td><td>open <code>app/index.html</code> or the GitHub Pages link</td><td>data lives in that browser&#x27;s localStorage</td></tr><tr><td>Windows</td><td>portable exe or installer</td><td>same data model, data lives in the app&#x27;s user-data folder</td></tr><tr><td>Android</td><td>APK</td><td>portrait-friendly layout; exports use the system &quot;save to&quot; picker</td></tr></tbody></table>
+<p>The UI is never more than seven tabs on the left (on phones they become a horizontal chip strip):</p>
+<pre><code>0 Tournaments   1 Setup   2 Players   3 Matches   4 Standings   5 Export   6 Season</code></pre>
+<p><strong>Top bar</strong>: the tournament summary (name · players · stages · current stage) plus four buttons — <code>Tournaments</code>, <code>New tournament</code>, <code>Save</code>, <code>Load file</code> — and the language switch (<code>EN</code> / <code>中文</code>).</p>
+<blockquote>On first run in Windows, SmartScreen may warn about an unsigned app: choose &quot;More info → Run anyway&quot;.</blockquote>
+<h2>2. Five-minute quick start</h2>
+<ol><li><strong>Create</strong>: <code>New tournament</code> → type a name → the event opens on <strong>Setup</strong>.</li><li><strong>Choose a format</strong>: in &quot;Stages&quot;, pick Swiss / single elim / double elim / round robin / groups. Defaults are sensible (Swiss, auto pairing).</li><li><strong>Add players</strong>: <strong>Players</strong> → paste a name list (one per line, or separated by commas / semicolons / tabs) → <code>Import list</code>. Seeds and starting points are optional.</li><li><strong>Generate</strong>: <strong>Matches</strong> → <code>Generate next round</code> (or <code>Generate first round</code> for knockouts).</li><li><strong>Record</strong>: each match row has score boxes and buttons — <code>Apply</code> to type a score, or <code>A wins</code> / <code>B wins</code> / <code>Draw</code> to add one game at a time. <code>Undo game</code> steps back one game.</li><li><strong>Close the round</strong>: <code>Finish round</code>. For the last round of the stage use <code>Finish stage &amp; advance</code>, which freezes the stage ranking and seeds the next stage.</li><li><strong>Publish</strong>: <strong>Standings</strong> for ranks, <strong>Export</strong> for a PDF / JPG / CSV / JSON save.</li></ol>
+<p>Everything autosaves to local storage after each action. <code>Undo last step</code> walks back one action (30 steps are kept).</p>
+<h2>3. Setup in detail</h2>
+<h3>3.1 Basics</h3>
+<ul><li><strong>Tournament name</strong> — shown in the top bar and in every export.</li><li><strong>Random seed</strong> — every draw (Swiss pairing, tiered draw, random groups) derives from this seed, so a saved event reproduces exactly the same pairings. The seed is generated once per event.</li></ul>
+<h3>3.2 Match format (defaults; per-stage override)</h3>
+<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td>Games per match</td><td>how many games a match can contain</td></tr><tr><td>Games to win</td><td>winning this many games ends the match (0 = always play every game, decide by games won)</td></tr><tr><td>Record per-game scores</td><td>lets you type the score of each game (needed for &quot;sum of scores&quot; and custom formulas)</td></tr><tr><td>Sets per match</td><td>a layer above games: <code>1</code> = classic, <code>3</code> = best-of-3 sets, each with its own games</td></tr><tr><td>Sets decide by</td><td><code>sets</code> (most sets won) / <code>games</code> (total games) / <code>points</code> (total points)</td></tr><tr><td>Sets to win</td><td>how many sets win the match (0 = auto majority)</td></tr></tbody></table>
+<p>Need one stage to differ (BO1 groups, BO5 knockout)? Tick <strong>Custom</strong> in that stage (&#x27;Format &amp; scoring for this stage&#x27;) — otherwise stages follow these defaults.</p>
+<h3>3.3 Scoring (defaults; per-stage override)</h3>
+<table><thead><tr><th>Mode</th><th>How points are awarded</th></tr></thead><tbody><tr><td>Win / draw / loss / bye (custom)</td><td>fixed points for a win, a draw, a loss, a bye</td></tr><tr><td>Per match-score tier</td><td>set points for every possible final score (e.g. 2-0, 2-1, 1-1, unfinished 1-0 …)</td></tr><tr><td>Points per game won</td><td>each game won is worth N points</td></tr><tr><td>Sum of game scores</td><td>add up the per-game scores you record</td></tr><tr><td>Custom formula</td><td>an expression over <code>w d l gw gl gd pa pb</code>, e.g. <code>w*3 + gd*0.5</code></td></tr></tbody></table>
+<p>Also here: <strong>draw handling</strong> (automatic tiebreak / allow draws / judge decides) and whether every draw counts as a loss for both sides.</p>
+<h3>3.4 Tiebreakers</h3>
+<p>Ties are compared top-to-bottom. Use <code>Up</code> / <code>Down</code> to reorder, <code>Remove</code> to disable, <code>Add tiebreaker</code> to insert another. Built-ins include points, forfeits, warnings, Buchholz (opponents&#x27; scores), head-to-head, game difference, games won/lost, wins, progressive score, cumulative score, score difference, &quot;stage N points&quot;, &quot;previous stage points&quot;, initial seed and manual order.</p>
+<p>Sub-notes:</p>
+<ul><li><strong>Head-to-head</strong> only decides between players who are otherwise tied (a mini-table is used when three or more are tied).</li><li><strong>Stage N points</strong> can be added per stage; later stages may compare earlier ones.</li><li>Removing a tiebreaker really removes it: ties that used to be split will show the same rank.</li></ul>
+<h3>3.5 Bye rules (odd player count)</h3>
+<p>Only an odd pool produces a bye, and at most one per round. Choose who gets it: random first round then lowest score (each player at most one bye), always the lowest score, a random player each round, or &quot;automatic, I&#x27;ll adjust it in manual pairing&quot;. Byes count as a win in the records and are also counted separately so tables can show them.</p>
+<h3>3.6 Match timer</h3>
+<p>Turn on &quot;Enable per-match time limit&quot; to give every match card its own countdown (start / pause / reset / +5 min). At timeout, the current score settles the match: the leader wins, and level scores follow the tie setting (record a draw / higher seed wins / don&#x27;t settle). Matches settled at timeout are marked <strong>unfinished</strong> and can be scored through the &quot;unfinished&quot; tier of the per-match-score scoring mode.</p>
+<h3>3.7 Team events</h3>
+<p>Turn on &quot;This is a team event&quot; and the unit becomes a <strong>team</strong> (players in Players become teams with members).</p>
+<ul><li><strong>One table = one match</strong>: a team match consists of several boards, each with one player per side.</li><li>Modes: <strong>n vs n</strong> (all boards at once, most board wins), <strong>conquest</strong> (every player on your side must win once; winners can&#x27;t play again), <strong>KOF</strong> (loser leaves, winner stays).</li><li>&quot;Players per side&quot; limits how many play (0 = everyone). Members may exceed that number.</li><li>Entry order is always <strong>line up, then record</strong>: pick both players for a board, then record that board.</li></ul>
+<h2>4. Formats</h2>
+<h3>4.1 Swiss</h3>
+<p>Pairing modes: <strong>auto</strong> (similar scores first, rematches avoided), <strong>random</strong> (redraw each round), <strong>manual</strong> (you pair each round yourself). Set the number of rounds; a hint shows ⌈log₂(players)⌉. Players on equal points are paired within their score group, leftover players float down, and the algorithm backtracks to avoid rematches as far as possible.</p>
+<p>Advanced switches per stage: early clinch / early elimination (see 4.6), mid-stage cut by rank, and per-stage custom format / scoring.</p>
+<h3>4.2 Single elimination</h3>
+<p><code>Generate first round</code> seeds the bracket: by seed (standard slots, strong players separated), tiered draw, fully random, or manual slot placement. Byes are assigned to the highest-ranked players. Each following round is generated from the winners. Optional <strong>third-place match</strong>.</p>
+<h3>4.3 Double elimination</h3>
+<p>Everyone starts in the winners bracket; one loss drops you to the losers bracket, two losses eliminate you. The winners champion and losers champion meet in the <strong>grand final</strong>.</p>
+<p>Grand-final rules (<code>gfMode</code>):</p>
+<table><thead><tr><th>Mode</th><th>Meaning</th></tr></thead><tbody><tr><td>Reset</td><td>losers champion must win the first match to force a reset match</td></tr><tr><td>Promotable</td><td>one match, cumulative score; once the losers champion reaches the target it rises</td></tr><tr><td>None</td><td>one match decides it</td></tr><tr><td>Handicap</td><td>one side starts with N games</td></tr></tbody></table>
+<p><strong>Split start</strong>: the top N ranked players start in winners, the rest in losers (starting in losers already counts as one loss). <strong>Half-bracket crossover</strong>: losers from the upper half drop into the lower half&#x27;s losers bracket and vice versa; both halves play out, their champions meet in the losers crossover final, and the winner goes to the grand final.</p>
+<p>Until you commit a round (<code>Commit round</code>) no bracket state moves — that is deliberate so you can correct scores first.</p>
+<h3>4.4 Round robin</h3>
+<p>Circle method, 1..N cycles (cycling swaps home/away). All rounds are generated at once; results can be filled in any order.</p>
+<h3>4.5 Groups</h3>
+<p>Split the field into N groups (snake by seed, random, or manual), and pick the format inside each group (round robin, Swiss, single elimination). Advance the top K per group, or the top K with ties together. Groups can be finished independently; manual pairing is done group by group.</p>
+<h3>4.6 Early clinch / early elimination</h3>
+<p>For Swiss, round robin and groups you can decide early:</p>
+<ul><li>N <strong>wins</strong> → clinch a seat in the next stage (the player stops playing this stage but keeps their place in the table and Buchholz),</li><li>N <strong>losses</strong> → eliminated immediately,</li><li>or cut by <strong>rank</strong> after a chosen round.</li></ul>
+<p>Clinch bonus: players who clinch early can start the next stage with bonus points (base + extra per round early).</p>
+<h3>4.7 Reading a bracket</h3>
+<p>Every cell names a player or a source — grey italics mean &quot;not decided yet&quot; (e.g. *winner of W1 M2*). The card header is the match number; the two bottom lines are the paths: <strong>win →</strong> next match, <strong>lose →</strong> where you drop (&quot;eliminated&quot; = nothing left). In double elimination the grand final sits on the right, on the winners row.</p>
+<h3>4.8 Merged bracket</h3>
+<p>With several knockout stages, &quot;Merged bracket&quot; draws them top to bottom with the advancing players named between stages, plus the overall champion at the end.</p>
+<h3>4.0 Draw handling (all formats)</h3>
+<p>Three options: automatic tiebreak game (default), allow draws (not for knockouts), judge decides. For double elimination you can additionally make <strong>every draw count as a loss for both sides</strong>.</p>
+<h2>5. Multi-stage events</h2>
+<p>Add as many stages as you like (<code>+ Add stage</code>, <code>Duplicate current stage</code>). Each stage has its own format, draw settings, advancement rule and (optionally) its own format / scoring.</p>
+<p>When you finish a stage, the advancing players are seeded into the next stage in rank order; players whose &quot;start stage&quot; is later join at that point.</p>
+<p><strong>Inheritance</strong> (per stage):</p>
+<ul><li>points: inherit a percentage of everything so far (<code>ratio</code>),</li><li>record: matches / wins / draws / losses / byes / games won / games lost are carried <strong>at face value</strong> (no half wins),</li><li>scores (cumulative / difference / Buchholz / progressive): inherited when &quot;inherit scores&quot; is on, scaled by <code>ratio</code>.</li></ul>
+<blockquote>Do not mix the two scopes: &quot;this stage&quot; figures drive early clinch and the event points table, while the accumulated figures drive the standings and tiebreakers.</blockquote>
+<h2>6. Players</h2>
+<ul><li>Import: paste a list (newline / comma / semicolon / tab separated) or import a <code>.txt</code> / <code>.csv</code> file; duplicates in the current list are skipped.</li><li>Fields: name, seed (initial placement — snake groups and bracket slots), starting points, note.</li><li><code>Renumber seeds by current order</code> numbers everyone by list order.</li><li>Withdrawing / disqualifying a player settles their unplayed matches (walkover for the opponent; both withdrawn = void) and keeps their finished results.</li><li>Team events: each row is a team; add members under it.</li></ul>
+<h2>7. Matches and score entry</h2>
+<ul><li>Each row shows the table number, both players with their live record (W-L-D · stage points · current rank) and the match score.</li><li>Entry options: type the score and press <code>Apply</code> (Enter in a score box does the same), or click <code>A wins</code> / <code>B wins</code> / <code>Draw</code> one game at a time, or <code>Undo game</code>.</li><li>Round chips at the top let you jump back to any earlier round; finished matches stay editable (re-enter the score to correct it).</li><li>Warning / forfeit counters sit under the same card and feed the tiebreakers.</li><li>With sets: the label switches to &quot;Set n&quot; and, if the score is level after the last set, an extra <strong>reset set</strong> is offered automatically.</li></ul>
+<h2>8. Manual pairing and redraws</h2>
+<h3>8.1 Round-by-round pairing</h3>
+<p>Set the pairing mode to <strong>manual</strong> for Swiss / round robin / groups, then use <code>Arrange manually</code> to pick pairs; unfilled players are flagged. Groups are arranged one group at a time.</p>
+<h3>8.2 First-round seeding modes</h3>
+<p>By seed, tiered draw (seeds grouped into tiers, random inside), fully random, or manual placement. The draw runs when you generate the first round; <code>Redraw</code> re-runs it before play starts. Byes stay with the players entitled to them by ranking.</p>
+<h3>8.3 Placing first-round slots by hand</h3>
+<p>For single / double elimination you can seat players yourself in the slot table (select two slots to swap them). Withdraw later and <code>Redraw</code> if you want a fresh draw.</p>
+<h2>9. Standings</h2>
+<ul><li>Standard table: rank, player, points, matches, W / D / L, forfeits, warnings, games W-L, game difference, cumulative score, score difference, progressive, Buchholz, status, manual order.</li><li>Knocked-out stages show a rank table derived from the bracket instead.</li><li>Clinched / eliminated players are tagged; ranks are tie-aware (equal tiebreakers, equal rank).</li><li><code>Up</code> / <code>Down</code> use manual order as a tiebreaker; <code>Export standings JPG</code> / <code>Save PDF</code> publish the table.</li></ul>
+<h2>10. Exports</h2>
+<p>Everything is generated in-app — <strong>no printer is involved</strong>.</p>
+<table><thead><tr><th>What</th><th>Output</th></tr></thead><tbody><tr><td>Matches</td><td>PDF (auto-paginated A4) / JPG (one long image) / CSV</td></tr><tr><td>Standings</td><td>PDF / JPG / CSV</td></tr><tr><td>Knockout stage</td><td>bracket image / PDF + a rank summary</td></tr><tr><td>Full report</td><td>all stages: brackets for knockouts, tables otherwise</td></tr><tr><td>Save</td><td>JSON, to back up or move to another device</td></tr><tr><td>Player list</td><td>plain text</td></tr></tbody></table>
+<p>CSV files open directly in Excel / WPS (UTF-8 with BOM). In the browser the file downloads to the default folder; on Windows a save dialog appears; on Android the system &quot;save to&quot; picker is used.</p>
+<h2>11. Data and backups</h2>
+<ul><li>All data lives in local storage on this device (browser localStorage, the Electron user-data folder, or the app&#x27;s private storage on Android). <strong>Nothing is uploaded.</strong></li><li>Multiple tournaments and multiple seasons are supported; the Tournaments tab lists them.</li><li><strong>Export a JSON save before the event and every few rounds.</strong> To restore, use <code>Load file</code>. Importing a save with the same id asks whether to overwrite or keep a copy.</li><li>Storage is around 5 MB. If saving fails you get a red warning — export a save, delete events you no longer need, then save again.</li><li>Old saves are migrated automatically when the version adds fields.</li></ul>
+<h2>12. FAQ</h2>
+<p><strong>Nothing happens when I double-click the exe.</strong> Unzip everything (the <code>resources</code> folder and DLLs must sit next to the exe). If antivirus blocks it, whitelist the folder.</p>
+<p><strong>The round says &quot;unfinished&quot; but everyone played.</strong> Usually one table has no result, or a player is used twice. Check for empty tables (remove them in the arrange panel).</p>
+<p><strong>It rejects 2:2.</strong> Best of 3 cannot end 2:2: a side cannot exceed &quot;games to win&quot;, and the total cannot exceed &quot;games per match&quot;. To allow draws, switch draw handling to &quot;allow draws&quot;.</p>
+<p><strong>Someone withdraws mid-event.</strong> Mark them withdrawn in Players. Unplayed matches are settled as walkovers, they stop being paired, and their finished results stay in the table.</p>
+<p><strong>A multi-set match is stuck at 1:1.</strong> That is a reset situation: the card offers a &quot;reset set&quot; — record it and the match settles.</p>
+<p><strong>Where is the language switch?</strong> Top bar, right side (<code>EN</code> / <code>中文</code>).</p>
+<h2>13. Points tables and seasons</h2>
+<p>Three layers:</p>
+<ol><li><strong>Event points table</strong> (per event): how this event converts results into points — by rank, by wins, or by advancing. The Standings tab shows it; exports include it.</li><li><strong>Units</strong>: either once for the whole event (final ranking) or once per stage (each stage&#x27;s ranking). Stacking is configurable: stacked, or restart from zero for the players who advanced.</li><li><strong>Seasons</strong>: several events chained into one race. Three plans:</li><li><strong>Each stop&#x27;s own rules</strong> (default and recommended): every event uses its own points table; the season only adds them up.</li><li><strong>One shared season rule</strong>: a single rank/wins table for every stop.</li><li><strong>One full rule per stage</strong>: each stage of each stop can have its own scoring.</li></ol>
+<p>Season tables show per-stop detail (<code>pts · rank</code>), the current leader, and warnings when a stop has no usable ranking. Each stop row has a shortcut to that event&#x27;s points table.</p>
+<p>Rank points are configured as tiers: each tier covers a rank range with the same points, then a per-rank step and a floor; a tier can also be marked as &quot;advancing&quot; for display only.</p>
+<h2>14. Version history (summary)</h2>
+<table><thead><tr><th>Version</th><th>Highlights</th></tr></thead><tbody><tr><td>v1.11</td><td>history navigation, merged bracket, round CSV</td></tr><tr><td>v1.13</td><td>points moved into stages</td></tr><tr><td>v1.14</td><td>tiers, sets, team events</td></tr><tr><td>v2.0</td><td>&quot;by advancing&quot; scoring mode</td></tr><tr><td>v2.1</td><td>team events: one table = one match</td></tr><tr><td>v2.2</td><td>manual pairing for every format, double-elim crossover</td></tr><tr><td>v2.3</td><td>per-stage points in tiebreakers, warnings / forfeits</td></tr><tr><td>v2.4</td><td>season scoring: three plans; bye fixes</td></tr><tr><td>v2.5</td><td>seasons computed from each stop&#x27;s own rules; exports without a printer (JPG / PDF); knockout bracket exports</td></tr><tr><td>v2.6</td><td>inherited records (matches / W-D-L / games) + independent per-stage scope</td></tr><tr><td>v2.6.1</td><td>audit fixes: save-failure warnings, snapshot slimming, bye / withdrawal / third-place ranking corrections, reset set for multi-set matches, formula validation, cleanup</td></tr><tr><td>v2.6 + EN</td><td><strong>bilingual UI</strong> (Chinese / English) with a top-bar switch</td></tr></tbody></table>
+<hr>
+<p>*Questions or ideas? Use <a href="https://github.com/abcnyyy/card-tournament-manager/discussions">Discussions</a>.*</p></div></body></html>

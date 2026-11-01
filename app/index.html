@@ -24,13 +24,13 @@
     </div>
 
     <nav class="tabs">
-      <button class="tab" data-view="list"><span class="tno">0</span>赛事列表</button>
-      <button class="tab active" data-view="setup"><span class="tno">1</span>赛事设置</button>
-      <button class="tab" data-view="players"><span class="tno">2</span>选手管理</button>
-      <button class="tab" data-view="matches"><span class="tno">3</span>对阵与录入</button>
-      <button class="tab" data-view="standing"><span class="tno">4</span>排名</button>
-      <button class="tab" data-view="export"><span class="tno">5</span>导出</button>
-      <button class="tab" data-view="season"><span class="tno">6</span>赛季积分</button>
+      <button class="tab" data-view="list"><span class="tno">0</span><span class="tlabel">赛事列表</span></button>
+      <button class="tab active" data-view="setup"><span class="tno">1</span><span class="tlabel">赛事设置</span></button>
+      <button class="tab" data-view="players"><span class="tno">2</span><span class="tlabel">选手管理</span></button>
+      <button class="tab" data-view="matches"><span class="tno">3</span><span class="tlabel">对阵与录入</span></button>
+      <button class="tab" data-view="standing"><span class="tno">4</span><span class="tlabel">排名</span></button>
+      <button class="tab" data-view="export"><span class="tno">5</span><span class="tlabel">导出</span></button>
+      <button class="tab" data-view="season"><span class="tno">6</span><span class="tlabel">赛季积分</span></button>
     </nav>
 
     <div class="sidebar-foot" id="sideFoot">v2.6</div>
@@ -41,6 +41,7 @@
     <div class="topbar">
       <div class="sub" id="topbarSub">未创建赛事</div>
       <div class="right noprint">
+        <button class="btn" id="btnLang">EN</button>
         <button class="btn" id="btnList">赛事列表</button>
         <button class="btn" id="btnNew">新建赛事</button>
         <button class="btn" id="btnSave">保存</button>
@@ -64,6 +65,8 @@
 
 <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
 
+<script src="js/i18n.js"></script>
+<script src="js/i18n.en.js"></script>
 <script src="js/core.js"></script>
 <script src="js/formats.js"></script>
 <script src="js/engine.js"></script>

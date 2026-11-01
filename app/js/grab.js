@@ -44,6 +44,8 @@
       'background:#fff;padding:18px 20px;box-sizing:border-box;' +
       'font-family:' + (getComputedStyle(document.body).fontFamily || 'sans-serif');
     stage.innerHTML = html;
+    // 导出的报表 / 对阵图要和界面同语言：先在离屏容器里翻一遍，再量尺寸
+    if (window.I18n) window.I18n.apply(stage);
     document.body.appendChild(stage);
     void stage.offsetHeight;               // 强制布局
     var w = Math.max(1, Math.ceil(stage.scrollWidth));

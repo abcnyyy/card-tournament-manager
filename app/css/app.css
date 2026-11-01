@@ -139,7 +139,8 @@ a { color: var(--brand); }
 .tab[disabled] { opacity: .4; cursor: not-allowed; }
 .tab[disabled]:hover { background: transparent; color: var(--fg-2); }
 .sidebar .tabs::before {
-  content: "赛事"; padding: 10px 9px 4px;
+  /* 文案由 i18n 通过 CSS 变量注入（伪元素没法用 JS 改文本），中文默认「赛事」 */
+  content: var(--tabs-label, "赛事"); padding: 10px 9px 4px;
   font-size: 10.5px; font-weight: 600; letter-spacing: .06em; color: var(--fg-3);
 }
 

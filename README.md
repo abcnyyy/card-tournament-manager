@@ -12,7 +12,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android-6941C6)](https://github.com/abcnyyy/card-tournament-manager/releases)
 [![Built with](https://img.shields.io/badge/built%20with-Electron%20%2B%20Capacitor-8A94A6)](https://www.electronjs.org/)
 
-**🌐 [在线试用（GitHub Pages）](https://abcnyyy.github.io/card-tournament-manager/) · 📖 [完整使用说明](使用说明.md) · 💬 [讨论区](https://github.com/abcnyyy/card-tournament-manager/discussions)**
+**🌐 [在线试用（GitHub Pages）](https://abcnyyy.github.io/card-tournament-manager/) · 📖 [完整使用说明](使用说明.md) · 🌏 [English README](README.en.md) / [English manual](使用说明.en.md) · 💬 [讨论区](https://github.com/abcnyyy/card-tournament-manager/discussions)**
 
 </div>
 
@@ -39,6 +39,7 @@
 | 📤 导出 | **不走打印机**：一次生成 PDF（A4 自动分页）或**一整张 JPG 长图**，一键发群 / 发动态；淘汰赛阶段导出的是**对阵图**而非排名表；另有积分榜 / 对阵 CSV、JSON 存档 |
 | 🔄 全可撤销 | 任意一步操作都可撤销 |
 | 📱 跨端 | 同一套前端打包为 Windows 桌面（Electron）与 Android（Capacitor），界面自适应 |
+| 🌐 中英双语 | 顶栏一键切换界面语言（EN / 中文），选择记在本机；导出报表、CSV、提示文案跟着语言走 |
 
 ## 🖼️ 界面预览
 
@@ -121,7 +122,7 @@ docs/        设计稿与截图
 - [ ] 赛事模板库（一键套用常见赛制组合）
 - [ ] 二维码签到 / 选手扫码自助录入
 - [ ] 直播大屏模式（投影对阵 + 实时比分）
-- [ ] 英文界面（i18n）
+- [x] 英文界面（i18n）—— 已支持，顶栏切换
 - [ ] 可选云同步（非强制，默认仍离线）
 - [ ] 更多赛制：循环瑞士、阶梯赛、擂台赛
 

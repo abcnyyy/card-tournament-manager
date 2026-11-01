@@ -11,6 +11,8 @@
     "test": "node tools/run_tests.js",
     "test:smoke": "node tools/run_tests.js --smoke",
     "test:all": "node tools/run_tests.js --all",
+    "test:i18n": "node tools/check_i18n.js",
+    "i18n:scan": "node tools/extract_i18n.js --zh",
     "dist:exe": "electron-builder --win --x64",
     "dist:portable": "electron-builder --win --x64 --config.win.target=portable",
     "cap:add": "cap add android",
