@@ -30,7 +30,7 @@ Swiss, single elimination, double elimination, round robin and group stages — 
 | 🔁 Multi-stage events | Chain any number of stages; advance or eliminate by rank, with either a fixed count or "ties advance together". The next stage can inherit **points + record (matches / W-D-L / games) + scores** |
 | 🃏 Team events | **One table = one match**; n-vs-n / conquest / KOF; players fielded per side is configurable; line up first, then record |
 | 🖐️ Manual pairing | **Every format can be paired manually**: pick pairings round by round in Swiss / round robin / groups (group by group), and seat players in the first-round slot table for single / double elim |
-| 🔀 Half-bracket crossover | Optional: losers from one half drop into the *other* half's losers bracket, then the two losers champions meet in a crossover final before the grand final |
+| 🔀 Half-bracket crossover | Optional: the field is split into halves and the losers bracket pairs across halves (so recent opponents do not meet again); the structure stays standard double elim, with the winners-final loser going straight into the losers final |
 | 🎯 Games → sets | A match can consist of several sets, each using the same game format (e.g. "best of 3, each best of 5"); decided by sets won / total games / total points |
 | 📊 Three scoring styles | By final rank / by wins / **by advancing to the next stage**; stacking is controlled per stage |
 | 🧮 Tiebreakers | Game difference, score difference, progressive score, Buchholz and more; when inheriting, **matches / wins / draws / losses / games are carried at face value** while scores can be scaled; **stage points can be set per stage** |

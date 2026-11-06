@@ -437,6 +437,18 @@
     '首轮对阵位': 'First-round slots',
     '总决赛赛制': 'Grand final rules',
     '启用半区互换': 'Enable half-bracket crossover',
+    '败者组配对时优先让不同半区的人相遇': 'Pair the losers bracket across halves whenever possible',
+    '把全场按首轮对阵位平分为上、下两个半区，败者组配对时优先挑另一个半区的对手，避免「刚在胜者组交过手的人、掉进败者组又立即相遇」。':
+      'Split the field into upper and lower halves by first-round slots, then pair the losers bracket across halves so players who just met in the winners bracket do not meet again immediately.',
+    '· 对阵结构仍是标准双败：败者组轮数、场次不变，胜者组决赛的败者照样直接进败者组决赛（不会被提前消耗掉）。':
+      '· The bracket structure stays standard double elimination: the losers bracket keeps the same rounds and matches, and the winners-final loser still goes straight into the losers final.',
+    '本阶段启用了半区互换（crossover）：全场按首轮对阵位平分为上、下两个半区，败者组配对时优先挑另一个半区的对手；对阵结构仍是标准双败 —— 胜者组决赛的败者直接进入败者组决赛。':
+      'Half-bracket crossover is on: the field is split into upper and lower halves by first-round slots and the losers bracket pairs across halves; the structure stays standard double elim, so the winners-final loser goes straight into the losers final.',
+    '半区互换已开启：败者组配对时优先让不同半区的选手相遇（避免刚交过手的人再次相遇）；对阵结构仍是标准双败 —— 胜者组决赛的败者直接进入败者组决赛。':
+      'Half-bracket crossover is on: the losers bracket pairs across halves (so recent opponents do not meet again); the structure stays standard double elim — the winners-final loser goes straight into the losers final.',
+    '：败者组配对时优先让不同半区的选手相遇（避免刚交过手的人再次相遇）；对阵结构仍是标准双败 —— 胜者组决赛的败者直接进入': ': the losers bracket pairs across halves (so recent opponents do not meet again); the structure stays standard double elim — the winners-final loser goes straight into the',
+    '败者组决赛。': 'losers final.',
+    '（半区互换）': ' (crossover)',
     '首轮编排方式': 'First-round seeding',
     '加赛局独立局制': 'Custom format for the reset match',
     '轮空归谁不会变': 'Byes stay with the same players',
@@ -477,7 +489,8 @@
     '来源': 'From',
     '加赛局': 'Reset match',
     '总决赛在最右边': 'The grand final is on the far right',
-    '半区互换已开启': 'Half-bracket crossover is on',
+    '半区互换已开启：败者组配对时优先让不同半区的选手相遇（避免刚交过手的人再次相遇）；对阵结构仍是标准双败 —— 胜者组决赛的败者直接进入败者组决赛。':
+      'Half-bracket crossover is on: the losers bracket pairs across halves (so recent opponents do not meet again); the structure stays standard double elim — the winners-final loser goes straight into the losers final.',
     '加赛制：败者组冠军需赢两场': 'Reset rule: the losers champion must win twice',
     '仅当败者组冠军赢下首场才进行': 'Only if the losers champion wins the first match',
     '胜者 → 夺冠（无后续比赛）': 'Win → champion (no further match)',

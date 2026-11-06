@@ -121,6 +121,17 @@
   function translateWhole(s) {
     var hit = dictHit(s);
     if (hit !== null) return hit;
+    // 前后可能有空格 / 换行（HTML 里的缩进），去掉再查一次，命中的话把空白原样保留
+    var trimmed = String(s).trim();
+    if (trimmed && trimmed !== s) {
+      var hitT = dictHit(trimmed);
+      if (hitT !== null) return s.replace(trimmed, hitT);
+      for (var it = 0; it < I.rules.length; it++) {
+        var rt = I.rules[it][0], ft = I.rules[it][1];
+        if (rt.test(trimmed)) return s.replace(trimmed, applyRule(trimmed, rt, ft));
+      }
+      return null;
+    }
     for (var i = 0; i < I.rules.length; i++) {
       var r = I.rules[i][0], fn = I.rules[i][1];
       if (r.test(s)) return applyRule(s, r, fn);
@@ -193,20 +204,23 @@
       // 说明文字里夹两个 <b> 的长句也走这条：整句在词典里就整句换掉，不在就落到子节点。
       var elKids = 0;
       for (var q = 0; q < run.length; q++) if (run[q].nodeType === 1) elKids++;
-      // 已经半边翻成英文的（父层自己没命中，子层先被翻过了）不要整体合并，
-
-      // 改成逐个文本节点翻，保住已经翻好的子节点
-      var mixed = /[A-Za-z]{3,}/.test(text) && CJK.test(text);
-      if (mixed) {
-        for (var w = 0; w < run.length; w++) {
-          if (run[w].nodeType === 3 && CJK.test(run[w].nodeValue)) run[w].nodeValue = I.t(run[w].nodeValue);
-        }
-        continue;
-      }
+      // 注意：不要用「含英文单词 → 认为已翻过」这种启发式过滤整句 —— 中文原文里本来就常带
+      // crossover / BO3 / Buchholz 这类英文词，一旦按「混合」跳过，整句就永远翻不了（踩过）。
+      // 真正的判断只有一条：整句能不能在词典/规则里命中；命中不了再逐节点翻。
       // 整句翻译只接受「翻完整段都不剩中文」的结果：多元素拼出来的行（逐局 chips 之类）
       // 一旦剩下中文就说明是硬拼的，宁可退回逐节点翻，也不要搞出半英半中
-      var en = translateWhole(text);
-      if (en !== null && elKids > 1 && CJK.test(en)) en = null;
+      var en;
+      if (elKids > 1) {
+        // 多个行内元素拼出来的句子：只接受「词典整句精确命中」（HTML 缩进带来的空格先去掉）
+        en = dictHit(text);
+        if (en === null) {
+          var tt = String(text).trim();
+          if (tt && tt !== text) en = dictHit(tt);
+        }
+        if (en !== null && CJK.test(en)) en = null;
+      } else {
+        en = translateWhole(text);
+      }
       if (en === null) {
         // 整句没命中：退一步，把这一串里的**文本节点**逐个翻（每块仍要精确命中才换），
         // 这样「<b>已经翻好的那块</b>：后面这句还没收录」不会把整行卡死在中文

@@ -1334,11 +1334,11 @@
       h += '<h4>双败 · 半区互换（crossover）</h4>';
       h += fld('启用半区互换',
         '<label><input type="checkbox" data-bind="' + p + '.deCrossDrop"'
-        + (s.deCrossDrop ? ' checked' : '') + '> 胜者组某半区的败者，交叉掉入<b>另一个</b>半区的败者组</label>',
-        '把全场按<b>首轮对阵位</b>平分为上、下两个半区：胜者组上半区的败者掉进<b>下半区</b>败者组、'
-        + '下半区的败者掉进<b>上半区</b>败者组。两个半区败者组各自打完、各出一名冠军后，'
-        + '在<b>「败者组交叉决赛」</b>汇合，胜者再去打总决赛。'
-        + '<br>· 好处：避免「刚在胜者组交过手的人、掉进败者组又立即相遇」，更公平、更接近主流电竞 / 棋类双败（如 CUBA 的上下半区）。'
+        + (s.deCrossDrop ? ' checked' : '') + '> 败者组配对时优先让<b>不同半区</b>的人相遇</label>',
+        '把全场按<b>首轮对阵位</b>平分为上、下两个半区，败者组配对时优先挑<b>另一个半区</b>的对手，'
+        + '避免「刚在胜者组交过手的人、掉进败者组又立即相遇」。'
+        + '<br>· 对阵结构<b>仍是标准双败</b>：败者组轮数、场次不变，'
+        + '胜者组决赛的败者照样<b>直接进败者组决赛</b>（不会被提前消耗掉）。'
         + '<br>· 关闭（默认）：传统双败，胜者组败者统一掉进同一个败者组，按原顺序交错配对。');
     }
 
@@ -2083,10 +2083,9 @@
     if (isCur && slotOn) h += slotPanelHTML(stage);
     if (stage.type === 'double_elim' && stage.deCrossDrop) {
       h += '<div class="notice noprint"><b>本阶段启用了半区互换（crossover）</b>：'
-        + '全场按首轮对阵位平分为上、下两个半区；<b>上半区胜者组</b>的败者掉进<b>下半区败者组</b>，'
-        + '下半区胜者组的败者掉进上半区败者组。两个半区的败者组各自打完后，'
-        + '两边的败者组冠军先打一场<b>「败者组交叉决赛」</b>，胜者才进总决赛。'
-        + (stage.de ? '' : '（生成首轮后即可在对阵卡上看到半区标记。）') + '</div>';
+        + '全场按首轮对阵位平分为上、下两个半区，<b>败者组配对时优先挑另一个半区的对手</b>；'
+        + '对阵结构仍是标准双败 —— 胜者组决赛的败者<b>直接进入败者组决赛</b>。'
+        + '</div>';
     }
     if (!stage.roundsData.length) {
       h += '<div class="notice empty">尚未生成对阵。点上方「生成首轮对阵」自动排，'
@@ -2173,22 +2172,11 @@
         }
         if (w.length) h += '<div class="msec">' + wLabel + '</div>' + matchGrid(w);
         if (l.length) {
-          // 半区互换：败者组分成上、下两个半区，各自打完再打「交叉决赛」
-          var crossOn = !!(stage.de && stage.de.cross);
-          if (crossOn) {
-            var lT = l.filter(function (m) { return m.lbHalf === 'T' && !m.isLBCross; });
-            var lB = l.filter(function (m) { return m.lbHalf === 'B' && !m.isLBCross; });
-            var lX = l.filter(function (m) { return m.isLBCross; });
-            var lN = l.filter(function (m) { return !m.lbHalf && !m.isLBCross; });
-            if (lT.length) h += '<div class="msec loser">败者组 · 上半区</div>' + matchGrid(lT);
-            if (lB.length) h += '<div class="msec loser">败者组 · 下半区</div>' + matchGrid(lB);
-            if (lX.length) {
-              h += '<div class="msec cross">败者组交叉决赛（上半区冠军 × 下半区冠军）</div>' + matchGrid(lX);
-            }
-            if (lN.length) h += '<div class="msec loser">败者组</div>' + matchGrid(lN);
-          } else {
-            h += '<div class="msec loser">败者组</div>' + matchGrid(l);
-          }
+          // v3.0：半区互换只影响配对顺序，不再有「上下半区 / 交叉决赛」这种额外分区，
+          // 败者组就是一条标准败者组（胜者组决赛的败者会出现在败者组决赛里）。
+          var lbTitle = '败者组';
+          if (stage.type === 'double_elim' && stage.deCrossDrop) lbTitle += '（半区互换）';
+          h += '<div class="msec loser">' + lbTitle + '</div>' + matchGrid(l);
         }
         if (t.length) h += '<div class="msec">季军争夺战</div>' + matchGrid(t);
       } else {
@@ -3130,8 +3118,8 @@
       + '卡片顶部是场次编号，底部两行是<b>晋级路径</b>：<span class="pw">胜 →</span> 下一场在哪，<span class="pl">负 →</span> 掉到哪（「淘汰」表示没有下一场）。'
       + (stage.type === 'double_elim' ? '双败的<b>总决赛在最右边</b>，与胜者组同一行。' + deHint : '')
       + (stage.type === 'double_elim' && stage.deCrossDrop
-        ? '<br><b>半区互换已开启</b>：上半区胜者组的败者交叉掉进<b>下半区败者组</b>、下半区胜者组的败者掉进上半区败者组；'
-          + '两个半区的败者组各自决出冠军后，先打一场<b>败者组交叉决赛</b>，胜者才进总决赛。'
+        ? '<br><b>半区互换已开启</b>：败者组配对时优先让<b>不同半区</b>的选手相遇（避免刚交过手的人再次相遇）；'
+          + '对阵结构仍是标准双败 —— 胜者组决赛的败者直接进入<b>败者组决赛</b>。'
         : '')
       + '</div>');
     var titleFmt = fmtText(E.fmtOf(t, stage));

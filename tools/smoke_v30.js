@@ -220,7 +220,9 @@ async function waitReady() {
   await sleep(600);
   const dt = await viewText();
   ok('对阵页有「半区互换」说明', /半区互换/.test(dt), dt.slice(0, 120));
-  ok('败者组按上/下半区分块', /败者组 · (上|下)半区/.test(dt), dt.slice(0, 200));
+  // v3.0 起半区互换只改配对策略，不再把败者组拆成上/下半区（那样会多打一轮、WB 决赛败者提前出局）
+  ok('败者组标题标注「（半区互换）」', /败者组（半区互换）/.test(dt), dt.slice(0, 200));
+  ok('不再出现「败者组 · 上/下半区」这种旧结构', !/败者组 · (上|下)半区/.test(dt));
   ok('存在败者组比赛卡（半区互换后败者组第 2 轮才出现）',
     await count('.msec.loser') >= 1, await count('.msec.loser'));
   await shot('v30_cross.png');

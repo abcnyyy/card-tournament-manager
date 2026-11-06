@@ -143,20 +143,25 @@ function simulateDE(t, cross) {
   const t = newTourney(8);
   const { s, allMatches } = simulateDE(t, true);
   ok('crossover：整届完赛', E.stageFinished(t, s), 'rounds=' + s.roundsData.length);
-  // 半区映射：按初始 bracket 位置，前4人 half=0（上），后4人 half=1（下）
+  // 半区映射：按初始 bracket 位置，前 4 人 half=0（上），后 4 人 half=1（下）
   const halfOf = s.de ? s.de.halfOf : {};
   const topIds = Object.keys(halfOf).filter(id => halfOf[id] === 0);
-  // 交叉掉落：存在某场 lbHalf='B'（下半区败者组）的比赛，其选手来自上半区
-  let crossDrop = false, lbCrossSeen = false;
-  allMatches.forEach(m => {
-    if (m.isLBCross) lbCrossSeen = true;
-    if (m.bracket === 'L' && m.lbHalf === 'B' && m.playerA && m.playerB) {
-      if (halfOf[m.playerA] === 0 || halfOf[m.playerB] === 0) crossDrop = true;
-    }
+  // v3.0 起「互换」只体现在败者组配对：同半区的人不在败者组第一轮相遇。
+  // （旧实现里那种「独立的败者组交叉决赛 + lbHalf 标记」已经删掉，
+  //   因为它会多打一轮、让 WB 决赛败者提前出局。）
+  let crossPairs = 0, sameHalfPairs = 0, lbRounds = 0;
+  s.roundsData.forEach(rd => {
+    const lms = rd.matches.filter(m => m.bracket === 'L' && m.playerA && m.playerB);
+    if (lms.length) lbRounds++;
+    lms.forEach(m => {
+      const ha = halfOf[m.playerA], hb = halfOf[m.playerB];
+      if (ha === undefined || hb === undefined) return;
+      if (ha !== hb) crossPairs++; else sameHalfPairs++;
+    });
   });
-  ok('crossover：出现败者组交叉决赛', lbCrossSeen, 'rounds=' + s.roundsData.length);
-  ok('crossover：上半区 WB 败者掉入下半区败者组(lbHalf=B)', crossDrop,
-    'top=' + topIds.length + ' matches=' + allMatches.length);
+  ok('crossover：败者组存在大量跨半区配对', crossPairs > 0 && crossPairs >= sameHalfPairs,
+    'cross=' + crossPairs + ' same=' + sameHalfPairs);
+  ok('crossover：败者组轮数 = 2×log2(8) − 2 = 4', lbRounds === 4, 'lbRounds=' + lbRounds);
   // 冠军：de.w 或 de.lChamp 唯一
   const champ = (s.de && s.de.w && s.de.w[0]) || (s.de && s.de.lChamp);
   ok('crossover：产生唯一冠军', !!champ, champ);
