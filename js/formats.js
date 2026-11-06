@@ -312,16 +312,33 @@
     return (h === undefined) ? 2 : h;
   }
 
-  /* 按半区分组（保持原有顺序）：上、下、未知 */
-  function splitByHalf(de, list) {
-    var top = [], bot = [], unk = [];
-    (list || []).forEach(function (id) {
-      var h = halfOfId(de, id);
-      (h === 0 ? top : h === 1 ? bot : unk).push(id);
-    });
-    return { top: top, bot: bot, unk: unk };
-  }
-
+  /**
+   * 败者组「波次重排」（crossover ordering）。
+   * 真实双败里，胜者组每轮掉下来的一波败者，进入败者组前会**重排**一次，
+   * 以免刚被某人淘汰的选手下一场马上又撞上同一个人（参考 double-elimination 库
+   * 的 "Crossover ordering" 一节的通行做法）：
+   *   · 第 1 波：本来就是相邻配对（胜者组第 1 轮相邻两场的败者），不重排；
+   *   · 第 2 波：整波**反向**；
+   *   · 第 3 波：反向后再**平移半个波**；
+   *   · 第 4 波：只平移半个波；
+   *   · 第 5 波：不变，之后按这 4 波循环。
+   * 返回「重排后第 i 个位置取原来第几位」。
+   */
+  F.waveOrder = function (waveNo, n) {
+    var idx = [], i;
+    for (i = 0; i < n; i++) idx.push(i);
+    if (!(waveNo > 1) || n < 2) return idx;
+    var w = ((waveNo - 2) % 4) + 2;              // 2,3,4,5 循环
+    function rotate(a, k) {
+      if (!a.length) return a;
+      k = ((k % a.length) + a.length) % a.length;
+      return a.slice(k).concat(a.slice(0, k));
+    }
+    if (w === 2) idx = idx.slice().reverse();
+    else if (w === 3) idx = rotate(idx.slice().reverse(), Math.floor(n / 2));
+    else if (w === 4) idx = rotate(idx, Math.floor(n / 2));
+    return idx;                                   // w === 5：不变
+  };
   /* 相邻配对（不互换）：(0,1) (2,3) … 与真实双败「同半区先打」的顺序一致 */
   function plainPairsOfList(list) {
     var pairs = [], byes = [];
@@ -332,16 +349,6 @@
     }
     for (var k = 0; k + 1 < arr.length; k += 2) pairs.push([arr[k], arr[k + 1]]);
     return { pairs: pairs, byes: byes };
-  }
-
-  /* 指定半区互配：上区第 i 个 × 下区第 i 个，剩下的相邻配 */
-  function crossPairsOfList(de, list) {
-    var g = splitByHalf(de, list);
-    var pairs = [];
-    var n = Math.min(g.top.length, g.bot.length), k;
-    for (k = 0; k < n; k++) pairs.push([g.top[k], g.bot[k]]);
-    var rest = plainPairsOfList(g.top.slice(n).concat(g.bot.slice(n)).concat(g.unk));
-    return { pairs: pairs.concat(rest.pairs), byes: rest.byes };
   }
 
   /* 不互换的合并轮：存活者第 i 个 × 新败者第 i 个（与对阵图的「第 X 场对第 X 场」一致） */
@@ -427,18 +434,25 @@
     if (lCnt >= 2 && pCnt >= lCnt) {
       // 合并轮：只吃 lCnt 个新败者，剩下的继续待注入
       var drops = de.pending.slice(0, lCnt);
+      de.waveNo = (de.waveNo || 0) + 1;
+      if (de.cross) {
+        // ★ 半区互换 / 交叉落位：把这一波败者按「波次规则」重排后再 1:1 接存活者，
+        //   免得刚被谁淘汰、下一场又撞上谁。第一波不重排（相邻配对本来就没问题）。
+        var order = F.waveOrder(de.waveNo, drops.length);
+        drops = order.map(function (j) { return drops[j]; });
+      }
       lbRes = plainPairsSurviveDrop(de.l, drops);
     } else if (lCnt >= 2) {
-      // 内部轮（也可能 pending 不够，先让存活者自己打）
+      // 内部轮（也可能 pending 不够，先让存活者自己打）：相邻配对
       lbRes = plainPairsOfList(de.l);
     } else {
-      // 存活者 0~1 人：把待注入的败者并进来（败者组决赛）
+      // 存活者 0~1 人：把待注入的败者并进来（败者组决赛 / 败者组第一轮）
       var all = de.l.concat(de.pending);
       if (all.length >= 2) {
-        // ★ 半区互换只作用在「败者组第一轮」的落位：上区的人先去对下区的人，
-        //   之后就按标准双败的相邻配对推进（这正是真实赛事里「交叉落位」的做法，
-        //   也保证结构和对阵图与实际生成完全一致）。
-        lbRes = (de.cross && lCnt === 0) ? crossPairsOfList(de, all) : plainPairsOfList(all);
+        // ★ 败者组第一轮永远是「相邻的胜者组败者」配对（两种模式都一样，这是标准双败）；
+        //   互换只影响后面波次掉下来时的落位顺序。
+        if (lCnt === 0) de.waveNo = (de.waveNo || 0) + 1;
+        lbRes = plainPairsOfList(all);
       } else {
         lbRes = { pairs: [], byes: all.length === 1 ? [all[0]] : [] };
       }

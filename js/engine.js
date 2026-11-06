@@ -2589,7 +2589,10 @@
     function pTok(id) { seq++; return { kind: 'p', id: id, __k: seq }; }
     function mTok(br, col, idx, win) { seq++; return { kind: 'm', br: br, col: col, idx: idx, win: win, __k: seq }; }
 
-    var de = F.createDEState([], fs.wSize);
+    var de = F.createDEState([], fs.wSize, {
+      cross: !!(stage && stage.deCrossDrop),
+      halfOf: {}
+    });
     de.w = fs.wSeeds.map(pTok);
     de.l = fs.lSeeds.map(pTok);
     de.pending = [];
@@ -4399,29 +4402,22 @@
       for (i = 0; i < lc; i++) {
         var la, lb;
         if (k2 === 1) {
-          // 首轮败者组：胜者组第 1 轮掉下来的败者
-          //   · 不互换：相邻两场（同半区）配对，与经典对阵图一致
-          //   · 半区互换：上半区第 i 场 × 下半区第 i 场（交叉落位）
-          if (crossOn) {
-            var wbR1n = Math.max(2, sizeDE / 2);              // 胜者组第 1 轮场数
-            var halfN = Math.floor(wbR1n / 2);
-            var ti = i, bi = halfN + i;
-            la = '胜者组第 1 轮 第 ' + (ti + 1) + ' 场败者';
-            lb = '胜者组第 1 轮 第 ' + (bi + 1) + ' 场败者';
-            wbLoseTo['1|' + ti] = lname + ' 第 ' + (i + 1) + ' 场';
-            wbLoseTo['1|' + bi] = lname + ' 第 ' + (i + 1) + ' 场';
-          } else {
-            la = '胜者组第 1 轮 第 ' + (2 * i + 1) + ' 场败者';
-            lb = '胜者组第 1 轮 第 ' + (2 * i + 2) + ' 场败者';
-            wbLoseTo['1|' + (2 * i)] = lname + ' 第 ' + (i + 1) + ' 场';
-            wbLoseTo['1|' + (2 * i + 1)] = lname + ' 第 ' + (i + 1) + ' 场';
-          }
+          // 首轮败者组：**无论是否互换**，都是胜者组第 1 轮相邻两场的败者对打
+          //（这是标准双败的固定结构；互换改的是后面波次的落位）
+          la = '胜者组第 1 轮 第 ' + (2 * i + 1) + ' 场败者';
+          lb = '胜者组第 1 轮 第 ' + (2 * i + 2) + ' 场败者';
+          wbLoseTo['1|' + (2 * i)] = lname + ' 第 ' + (i + 1) + ' 场';
+          wbLoseTo['1|' + (2 * i + 1)] = lname + ' 第 ' + (i + 1) + ' 场';
         } else if (k2 % 2 === 0) {
-          // 偶数轮：败者组上一轮胜者 vs 胜者组第 (k/2+1) 轮的败者
+          // 偶数轮：败者组上一轮胜者 vs 胜者组第 (k/2+1) 轮掉下来的败者
+          // 半区互换时，这一「波」败者要先按波次规则重排再落位（第 2 波反向、第 3 波反向移半…）
           var jj = k2 / 2;
+          var waveNo = jj + 1;
+          var perm = crossOn ? F.waveOrder(waveNo, lc) : null;
+          var srcIdx = perm ? perm[i] : i;
           la = lprev + ' 第 ' + (2 * i + 1) + ' 场胜者';
-          lb = '胜者组第 ' + (jj + 1) + ' 轮 第 ' + (i + 1) + ' 场败者';
-          wbLoseTo[(jj + 1) + '|' + i] = lname + ' 第 ' + (i + 1) + ' 场';
+          lb = '胜者组第 ' + (jj + 1) + ' 轮 第 ' + (srcIdx + 1) + ' 场败者';
+          wbLoseTo[(jj + 1) + '|' + srcIdx] = lname + ' 第 ' + (i + 1) + ' 场';
         } else {
           // 奇数轮：败者组上一轮的两个胜者
           la = lprev + ' 第 ' + (2 * i + 1) + ' 场胜者';

@@ -437,6 +437,20 @@
     '首轮对阵位': 'First-round slots',
     '总决赛赛制': 'Grand final rules',
     '启用半区互换': 'Enable half-bracket crossover',
+    '胜者组败者掉进败者组时重排落位，避免刚交过手的人又碰上':
+      'Reorder winners-bracket losers as they drop in, so recent opponents do not meet again',
+    '败者组第一轮永远是胜者组第 1 轮相邻两场的败者对打（两种模式都一样，这是标准双败的固定结构）。互换改的是后面每一波掉下来的败者的落位顺序：':
+      'The first losers round is always losers of adjacent winners round-1 matches (both modes — that is the standard bracket). Crossover only changes how later waves of losers are placed:',
+    '· 第 1 波（胜者组第 1 轮）→ 原样；第 2 波 → 整波反向；第 3 波 → 反向后再平移半数；第 4 波 → 平移半数；第 5 波 → 原样，之后按 4 波循环。':
+      '· wave 1 (winners round 1) unchanged; wave 2 reversed; wave 3 reversed and shifted by half; wave 4 shifted by half; wave 5 unchanged, then the cycle repeats.',
+    '· 效果：刚在胜者组被谁淘汰的人，不会掉进败者组马上又撞上他；对阵结构、轮数、场次都不变，胜者组决赛的败者照样直接进败者组决赛。':
+      '· Effect: a player knocked out in the winners bracket does not immediately face the same opponent again; the structure, round count and match count stay the same, and the winners-final loser still goes straight into the losers final.',
+    '· 关闭（默认）：掉下来的败者按到达顺序直接 1:1 落位，不重排。':
+      '· Off (default): losers drop in arrival order, one-to-one, with no reordering.',
+    '本阶段启用了半区互换（交叉落位）：败者组第一轮仍是胜者组首轮相邻两场的败者对打；从第 2 波起，掉下来的败者会按「反向 / 反向移半 / 移半 / 不变」循环重排落位，避免刚交过手的人再次相遇。':
+      'Crossover dropping is on: the first losers round still pairs losers of adjacent winners round-1 matches; from wave 2 on, each wave of losers is reordered (reversed / reversed+shifted / shifted / unchanged) so recent opponents do not meet again.',
+    '半区互换已开启：败者组第一轮仍按胜者组首轮相邻两场的败者对打；之后每一波掉下来的败者会按「反向 / 反向移半 / 移半 / 不变」循环重排，避免刚交过手的人再碰上。':
+      'Crossover dropping is on: the first losers round still pairs losers of adjacent winners round-1 matches; later waves are reordered (reversed / reversed+shifted / shifted / unchanged) so recent opponents do not meet again.',
     '胜者组掉下来的败者，第一轮就交叉去碰另一个半区的人': 'Winners-bracket losers cross over to face the other half in the first losers round',
     '把全场按首轮对阵位平分为上、下两个半区：败者组第一轮由上半区的败者对下半区的败者（交叉落位），之后就按标准双败推进，避免「刚在胜者组交过手的人、掉进败者组又立即相遇」。':
       'Split the field into upper and lower halves by first-round slots: the first losers round pairs upper-half losers with lower-half losers (crossover), then the bracket proceeds like standard double elim so recent opponents do not meet again.',
