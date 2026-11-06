@@ -1,19 +1,20 @@
 /* 版本号统一升级脚本（UTF-8 安全，避免 PowerShell 默认编码把中文写坏）
-   用法：node tools/bump_version.js 3.0
+   用法：node tools/bump_version.js 3.0    或   node tools/bump_version.js 3.0.1
    会改：package.json / app/index.html / android/app/build.gradle
    另外提示需要手工改的两处文档标题（使用说明 中英）。 */
 const fs = require('fs');
 const path = require('path');
 
 const arg = process.argv[2];
-if (!arg || !/^\d+\.\d+$/.test(arg)) {
-  console.error('用法: node tools/bump_version.js <主.次>   例：node tools/bump_version.js 3.0');
+if (!arg || !/^\d+\.\d+(\.\d+)?$/.test(arg)) {
+  console.error('用法: node tools/bump_version.js <主.次[.修订]>   例：node tools/bump_version.js 3.0 / 3.0.1');
   process.exit(1);
 }
 const root = path.join(__dirname, '..');
 const parts = arg.split('.');
-const semver = parts[0] + '.' + parts[1] + '.0';          // package.json 用三段
-const code = (parseInt(parts[0], 10) * 10) + parseInt(parts[1], 10);  // versionCode：3.0 -> 30
+const semver = parts[0] + '.' + parts[1] + '.' + (parts[2] || '0');   // package.json 用三段
+// versionCode：3.0 -> 30，3.0.1 -> 31（必须单调递增，安卓才认升级）
+const code = (parseInt(parts[0], 10) * 100) + (parseInt(parts[1], 10) * 10) + (parseInt(parts[2] || '0', 10));
 
 function rw(rel, fn) {
   const p = path.join(root, rel);
