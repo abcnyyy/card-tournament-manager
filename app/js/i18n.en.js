@@ -437,6 +437,17 @@
     '首轮对阵位': 'First-round slots',
     '总决赛赛制': 'Grand final rules',
     '启用半区互换': 'Enable half-bracket crossover',
+    '胜者组掉下来的败者，第一轮就交叉去碰另一个半区的人': 'Winners-bracket losers cross over to face the other half in the first losers round',
+    '把全场按首轮对阵位平分为上、下两个半区：败者组第一轮由上半区的败者对下半区的败者（交叉落位），之后就按标准双败推进，避免「刚在胜者组交过手的人、掉进败者组又立即相遇」。':
+      'Split the field into upper and lower halves by first-round slots: the first losers round pairs upper-half losers with lower-half losers (crossover), then the bracket proceeds like standard double elim so recent opponents do not meet again.',
+    '· 对阵结构仍是标准双败：败者组轮数、场次不变，胜者组决赛的败者照样直接进败者组决赛（不会被提前消耗掉）。':
+      '· The structure is still standard double elim: same losers rounds and matches, and the winners-final loser still goes straight into the losers final.',
+    '把全场按首轮对阵位平分为上、下两个半区：败者组第一轮由上半区的败者对下半区的败者（交叉落位），之后就按标准双败推进，避免「刚在胜者组交过手的人、掉进败者组又立即相遇」。· 对阵结构仍是标准双败：败者组轮数、场次不变，胜者组决赛的败者照样直接进败者组决赛（不会被提前消耗掉）。':
+      'Split the field into upper and lower halves by first-round slots: the first losers-bracket round pairs upper-half losers with lower-half losers (crossover), then the bracket proceeds like standard double elim, so players who just met in the winners bracket do not meet again immediately. · The structure is still standard double elim: same losers-bracket rounds and matches, and the winners-final loser still goes straight into the losers final.',
+    '· 对阵图会同步画出交叉后的去向（「负 →」落在哪一场）。': '· The bracket diagram shows where each crossover loser drops.',
+    '· 关闭（默认）：传统双败，败者组第一轮是相邻两场掉下来的败者对打（同半区先打）。': '· Off (default): classic double elim — the first losers round pairs losers of adjacent winners-bracket matches (same half first).',
+    '本阶段启用了半区互换（crossover）：全场按首轮对阵位平分为上、下两个半区，败者组第一轮由上半区的败者对下半区的败者（交叉落位），之后按标准双败推进；胜者组决赛的败者直接进入败者组决赛。':
+      'Half-bracket crossover is on: the field is split into upper and lower halves and the first losers-bracket round crosses halves (upper losers vs lower losers); then the bracket proceeds like standard double elim, with the winners-final loser going straight into the losers final.',
     '败者组配对时优先让不同半区的人相遇': 'Pair the losers bracket across halves whenever possible',
     '把全场按首轮对阵位平分为上、下两个半区，败者组配对时优先挑另一个半区的对手，避免「刚在胜者组交过手的人、掉进败者组又立即相遇」。':
       'Split the field into upper and lower halves by first-round slots, then pair the losers bracket across halves so players who just met in the winners bracket do not meet again immediately.',

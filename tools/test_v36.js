@@ -186,6 +186,87 @@ section('B. 半区互换：结构不变、败者组优先跨半区配对');
   ok(n + ' 人：名次完整且冠军唯一', rank.length === n && new Set(rank).size === n, rank);
 });
 
+/* ============ B2. 半区落位：不互换=同半区先打，互换=首轮跨半区 ============ */
+section('B2. 半区落位（败者组第一轮）');
+[4, 8, 16, 32].forEach(n => {
+  const halfOfOf = st => id => {
+    const h = st.de && st.de.halfOf ? (st.de.halfOf['id:' + id] !== undefined ? st.de.halfOf['id:' + id] : st.de.halfOf[id]) : undefined;
+    return h;
+  };
+  const firstLB = st => {
+    const rd = st.roundsData.find(r => r.matches.some(m => m.bracket === 'L' && m.playerA && m.playerB));
+    return rd ? rd.matches.filter(m => m.bracket === 'L' && m.playerA && m.playerB) : [];
+  };
+
+  const plain = run(n);
+  const hP = halfOfOf(plain.st);
+  const pPairs = firstLB(plain.st);
+  const pCross = pPairs.filter(m => hP(m.playerA) !== undefined && hP(m.playerB) !== undefined && hP(m.playerA) !== hP(m.playerB)).length;
+  // 4 人时胜者组只有 2 场、败者组首轮只有 1 场 —— 两个败者天然来自不同半区，无法避免
+  ok(n + ' 人 不互换：败者组第一轮同半区' + (n === 4 ? '（4 人时无解，跳过）' : ''),
+    pPairs.length > 0 && (n === 4 || pCross === 0), { 场次: pPairs.length, 跨半区: pCross });
+
+  const cross = run(n, { deCrossDrop: true });
+  const hC = halfOfOf(cross.st);
+  const cPairs = firstLB(cross.st);
+  const cCross = cPairs.filter(m => hC(m.playerA) !== undefined && hC(m.playerB) !== undefined && hC(m.playerA) !== hC(m.playerB)).length;
+  ok(n + ' 人 互换：败者组第一轮全部跨半区', cCross === cPairs.length && cPairs.length > 0, { 场次: cPairs.length, 跨半区: cCross });
+  ok(n + ' 人 互换：半区人数前后一致（上 / 下各一半）', (function () {
+    const hs = Object.keys(cross.st.de.halfOf || {}).map(k => cross.st.de.halfOf[k]).filter(v => v === 0 || v === 1);
+    const c0 = hs.filter(v => v === 0).length, c1 = hs.filter(v => v === 1).length;
+    return c0 === c1 && c0 > 0;
+  })(), cross.st.de && cross.st.de.halfOf);
+});
+
+/* ============ B3. 对阵图：卡片选手 / 胜负去向必须和真实比赛一致 ============ */
+section('B3. 对阵图去向与实际比赛一致');
+function planCardsOf(plan) {
+  const out = [];
+  (plan.rows || []).forEach(r => (r.cols || []).forEach(c => (c.cards || []).forEach(cd => out.push({ col: c.name, cd }))));
+  (plan.rows || []).forEach(r => (r.gf || []).forEach(c => (c.cards || []).forEach(cd => out.push({ col: c.name, cd }))));
+  return out;
+}
+[4, 8, 16, 32].forEach(n => {
+  [false, true].forEach(crossMode => {
+    const { t, st } = run(n, { deCrossDrop: crossMode });
+    const nm = nameOf(t);
+    const plan = E.bracketPlan(t, st);
+    const cards = planCardsOf(plan);
+    const byMatch = {};
+    cards.forEach(x => { if (x.cd.m) byMatch[x.cd.m.id] = x; });
+    let badWin = 0, badLose = 0, checked = 0;
+    const samples = [];
+    st.roundsData.forEach(rd => rd.matches.forEach(m => {
+      const x = byMatch[m.id];
+      if (!x || !m.result || !m.result.winner || m.isBye) return;
+      checked++;
+      const wid = m.result.winner === 'A' ? m.playerA : m.playerB;
+      const lid = m.result.winner === 'A' ? m.playerB : m.playerA;
+      const later = st.roundsData.filter(r2 => r2.index > rd.index).flatMap(r2 => r2.matches);
+      const nextW = later.filter(mm => mm.playerA === wid || mm.playerB === wid)[0];
+      if (nextW && (!byMatch[nextW.id] || byMatch[nextW.id].cd.title !== x.cd.winTo)) {
+        badWin++;
+        if (samples.length < 3) samples.push(x.cd.title + ' 胜→' + x.cd.winTo + ' 实际→' + (byMatch[nextW.id] || {}).title);
+      }
+      const nextL = later.filter(mm => mm.playerA === lid || mm.playerB === lid)[0];
+      if (nextL && (!byMatch[nextL.id] || byMatch[nextL.id].cd.title !== x.cd.loseTo)) {
+        badLose++;
+        if (samples.length < 3) samples.push(x.cd.title + ' 负→' + x.cd.loseTo + ' 实际→' + (byMatch[nextL.id] || {}).title);
+      }
+    }));
+    ok(n + ' 人' + (crossMode ? ' 互换' : '') + '：对阵图「胜→」与真实下一场一致（' + checked + ' 场）', badWin === 0, samples);
+    ok(n + ' 人' + (crossMode ? ' 互换' : '') + '：对阵图「负→」与真实掉落地一致', badLose === 0, samples);
+    // 卡片上的选手与实际比赛一致
+    let badPlayer = 0;
+    st.roundsData.forEach(rd => rd.matches.forEach(m => {
+      const x = byMatch[m.id];
+      if (!x || !m.playerA) return;
+      const txt = String(x.cd.a && x.cd.a.text || '') + '|' + String(x.cd.b && x.cd.b.text || '');
+      if (txt.indexOf(nm(m.playerA)) < 0 || (m.playerB && txt.indexOf(nm(m.playerB)) < 0)) badPlayer++;
+    }));
+    ok(n + ' 人' + (crossMode ? ' 互换' : '') + '：卡片选手与真实比赛一致', badPlayer === 0, badPlayer);
+  });
+});
 /* ============ C. 两种模式结构对比：互换不多打轮次 ============ */
 section('C. 互换 vs 标准：轮数 / 场次对比');
 [8, 16, 32].forEach(n => {
