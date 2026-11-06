@@ -186,38 +186,38 @@ section('B. 半区互换：结构不变、败者组优先跨半区配对');
   ok(n + ' 人：名次完整且冠军唯一', rank.length === n && new Set(rank).size === n, rank);
 });
 
-/* ============ B2. 半区落位：不互换=同半区先打，互换=首轮跨半区 ============ */
-section('B2. 半区落位（败者组第一轮）');
-[4, 8, 16, 32].forEach(n => {
-  const halfOfOf = st => id => {
-    const h = st.de && st.de.halfOf ? (st.de.halfOf['id:' + id] !== undefined ? st.de.halfOf['id:' + id] : st.de.halfOf[id]) : undefined;
-    return h;
-  };
-  const firstLB = st => {
-    const rd = st.roundsData.find(r => r.matches.some(m => m.bracket === 'L' && m.playerA && m.playerB));
-    return rd ? rd.matches.filter(m => m.bracket === 'L' && m.playerA && m.playerB) : [];
-  };
+/* ============ B2. 败者组落位：第一轮永远相邻，互换改的是后面波次 ============ */
+section('B2. 败者组落位（第一轮相邻 / 互换只动后面波次）');
+[8, 16, 32].forEach(n => {
+  const lbPairs = st => st.roundsData
+    .filter(rd => rd.matches.some(m => m.bracket === 'L' && m.playerA && m.playerB))
+    .map(rd => rd.matches.filter(m => m.bracket === 'L' && m.playerA && m.playerB)
+      .map(m => [m.playerA, m.playerB]));
+  const plainRun = run(n);
+  const crossRun = run(n, { deCrossDrop: true });
+  const lbP = lbPairs(plainRun.st), lbC = lbPairs(crossRun.st);
+  const sigOf = tt => rows => rows.map(r => r.map(p => p.map(nameOf(tt)).sort().join('-')).join(' | ')).join(' || ');
+  const sig = sigOf(plainRun.t), sigC = sigOf(crossRun.t);
 
-  const plain = run(n);
-  const hP = halfOfOf(plain.st);
-  const pPairs = firstLB(plain.st);
-  const pCross = pPairs.filter(m => hP(m.playerA) !== undefined && hP(m.playerB) !== undefined && hP(m.playerA) !== hP(m.playerB)).length;
-  // 4 人时胜者组只有 2 场、败者组首轮只有 1 场 —— 两个败者天然来自不同半区，无法避免
-  ok(n + ' 人 不互换：败者组第一轮同半区' + (n === 4 ? '（4 人时无解，跳过）' : ''),
-    pPairs.length > 0 && (n === 4 || pCross === 0), { 场次: pPairs.length, 跨半区: pCross });
-
-  const cross = run(n, { deCrossDrop: true });
-  const hC = halfOfOf(cross.st);
-  const cPairs = firstLB(cross.st);
-  const cCross = cPairs.filter(m => hC(m.playerA) !== undefined && hC(m.playerB) !== undefined && hC(m.playerA) !== hC(m.playerB)).length;
-  ok(n + ' 人 互换：败者组第一轮全部跨半区', cCross === cPairs.length && cPairs.length > 0, { 场次: cPairs.length, 跨半区: cCross });
-  ok(n + ' 人 互换：半区人数前后一致（上 / 下各一半）', (function () {
-    const hs = Object.keys(cross.st.de.halfOf || {}).map(k => cross.st.de.halfOf[k]).filter(v => v === 0 || v === 1);
-    const c0 = hs.filter(v => v === 0).length, c1 = hs.filter(v => v === 1).length;
-    return c0 === c1 && c0 > 0;
-  })(), cross.st.de && cross.st.de.halfOf);
+  ok(n + ' 人：第一轮败者组两种模式一致（都是相邻胜者组败者）', sig([lbP[0]]) === sigC([lbC[0]]),
+    { 不互换: sig([lbP[0]]), 互换: sigC([lbC[0]]) });
+  ok(n + ' 人：第一轮败者组就是胜者组第 1 轮相邻两场的败者对打', (function () {
+    const wb1 = plainRun.st.roundsData[0].matches.filter(m => m.bracket === 'W' && !m.isBye);
+    const expect = [];
+    for (let i = 0; i + 1 < wb1.length; i += 2) expect.push([wb1[i], wb1[i + 1]]);
+    const losersOf = m => m.result ? (m.result.winner === 'A' ? m.playerB : m.playerA) : null;
+    return expect.every((pr, k) => {
+      const a = losersOf(pr[0]), b = losersOf(pr[1]);
+      const row = lbP[0][k] || [];
+      return row.indexOf(a) >= 0 && row.indexOf(b) >= 0;
+    });
+  })());
+  if (n >= 8) {
+    ok(n + ' 人：互换会改掉第 2 轮落位（波次反向）', sig([lbP[1]]) !== sigC([lbC[1]]),
+      { 不互换: sig([lbP[1]]), 互换: sigC([lbC[1]]) });
+  }
+  ok(n + ' 人：互换不改变败者组轮数', lbP.length === lbC.length, { 不互换: lbP.length, 互换: lbC.length });
 });
-
 /* ============ B3. 对阵图：卡片选手 / 胜负去向必须和真实比赛一致 ============ */
 section('B3. 对阵图去向与实际比赛一致');
 function planCardsOf(plan) {
