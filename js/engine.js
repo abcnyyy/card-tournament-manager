@@ -2669,8 +2669,8 @@
       var halfOf = {};
       if (cross) {
         // 半区按「首轮对阵位」平分：座位表上半段 = 上半区，下半段 = 下半区。
-        // 这样上下半区就是对阵图上的上、下两半，符合通行的 crossover 口径
-        //（上半区胜者组的败者交叉掉进下半区败者组，反之亦然）。
+        // 互换只影响败者组配对策略（同半区的人不在败者组第一场相遇），
+        // 对阵结构与标准双败完全一致 —— 胜者组决赛败者照样直接进败者组决赛。
         var slotArr = fr.slotsW || [];
         var halfN = Math.floor(slotArr.length / 2);
         slotArr.forEach(function (id, idx) { if (id) halfOf[id] = (idx < halfN) ? 0 : 1; });
@@ -2707,31 +2707,12 @@
       if (p[0] && p[1]) { var m = E.mkMatch(rIdx, p[0], p[1], null); m.bracket = 'W'; ms.push(m); }
       else { var bm = E.mkMatch(rIdx, p[0] || p[1], null, null); bm.bracket = 'W'; bm.isBye = true; ms.push(bm); }
     }
-    function pushL(p, half) {
-      if (p[0] && p[1]) { var m = E.mkMatch(rIdx, p[0], p[1], null); m.bracket = 'L'; m.lbHalf = half; ms.push(m); }
-      else { var bm = E.mkMatch(rIdx, p[0] || p[1], null, null); bm.bracket = 'L'; bm.lbHalf = half; bm.isBye = true; ms.push(bm); }
-    }
-    if (stage.de.cross) {
-      nx.lbTop.forEach(function (p) { pushL(p, 'T'); });
-      nx.lbBot.forEach(function (p) { pushL(p, 'B'); });
-      (nx.byesLT || []).forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'L'; m.lbHalf = 'T'; m.isBye = true; ms.push(m); });
-      (nx.byesLB || []).forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'L'; m.lbHalf = 'B'; m.isBye = true; ms.push(m); });
-      if (nx.lbCrossPair) {
-        var cm = E.mkMatch(rIdx, nx.lbCrossPair[0], nx.lbCrossPair[1], null);
-        cm.bracket = 'L'; cm.isLBCross = true; ms.push(cm);
-      }
-      nx.pairsW.forEach(function (p) { pushW(p); });
-      (nx.byesW || []).forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'W'; m.isBye = true; ms.push(m); });
-    } else {
-      nx.pairsW.forEach(function (p) {
-        var m = E.mkMatch(rIdx, p[0], p[1], null);
-        m.bracket = 'W';
-        ms.push(m);
-      });
-      nx.pairsL.forEach(function (p) { var m = E.mkMatch(rIdx, p[0], p[1], null); m.bracket = 'L'; ms.push(m); });
-      nx.byesW.forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'W'; m.isBye = true; ms.push(m); });
-      nx.byesL.forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'L'; m.isBye = true; ms.push(m); });
-    }
+    // v3.0：半区互换不再有独立的一整套「lbTop / lbBot / 交叉决赛」，
+    // 结构就是标准双败（胜者组 + 一条败者组），互换只体现在败者组的配对顺序上。
+    nx.pairsW.forEach(function (p) { pushW(p); });
+    nx.pairsL.forEach(function (p) { var m = E.mkMatch(rIdx, p[0], p[1], null); m.bracket = 'L'; ms.push(m); });
+    nx.byesW.forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'W'; m.isBye = true; ms.push(m); });
+    nx.byesL.forEach(function (b) { var m = E.mkMatch(rIdx, b, null, null); m.bracket = 'L'; m.isBye = true; ms.push(m); });
 
     // 总决赛：加赛局 / 让局 / 可升格决赛 的标记
     if (nx.gf) {
@@ -2758,8 +2739,8 @@
       var pb = t.players.filter(function (x) { return x.id === (m.playerA || m.playerB); })[0];
       if (pb) pb.hasBye = true;
     });
-    stage.roundsData.push({ index: rIdx, matches: ms, isGF: !!nx.gf, gfReset: !!nx.gfReset, isLBCross: !!nx.lbCrossPair, committed: false });
-    return { ok: true, roundIndex: rIdx, isGF: !!nx.gf, gfReset: !!nx.gfReset, isLBCross: !!nx.lbCrossPair };
+    stage.roundsData.push({ index: rIdx, matches: ms, isGF: !!nx.gf, gfReset: !!nx.gfReset, committed: false });
+    return { ok: true, roundIndex: rIdx, isGF: !!nx.gf, gfReset: !!nx.gfReset };
   };
 
   /* ---- 双败：把退赛者从状态机里剔除 ---- */
@@ -2767,7 +2748,9 @@
     if (!stage || !stage.de) return 0;
     var dead = E.droppedMap(t);
     var n = 0;
-    ['w', 'l', 'pending', 'lTop', 'lBot', 'pendingTop', 'pendingBot'].forEach(function (k) {
+    // v3.0 起半区互换不再有独立的败者组半区状态（lTop/lBot/pendingTop/pendingBot）；
+    // 老存档里若残留这些字段，下面也不会再读，留着不影响。
+    ['w', 'l', 'pending'].forEach(function (k) {
       if (!Array.isArray(stage.de[k])) return;
       var before = stage.de[k].length;
       stage.de[k] = stage.de[k].filter(function (id) { return !dead[id]; });
