@@ -2667,7 +2667,7 @@
       var fr = E.deFirstRound(t, stage, seeded);
       var cross = !!stage.deCrossDrop;
       var halfOf = {};
-      if (cross) {
+      if (true) {   // 半区映射总是算出来：互换要用，测试 / 排查也要用
         // 半区按「首轮对阵位」平分：座位表上半段 = 上半区，下半段 = 下半区。
         // 互换只影响败者组配对策略（同半区的人不在败者组第一场相遇），
         // 对阵结构与标准双败完全一致 —— 胜者组决赛败者照样直接进败者组决赛。
@@ -4339,6 +4339,7 @@
     }
 
     var sizeDE = stage.bracketSize || U.nextPow2(Math.max(2, n));
+    var crossOn = !!stage.deCrossDrop;   // 半区互换：只影响败者组第一轮的落位
     var m = Math.round(Math.log2(sizeDE));
     // 2 人双败时只有「胜者组决赛 + 总决赛」，没有败者组轮次（以前强制 m=2 会算出 0.5 场比赛 → 数组越界）
     if (m < 1) m = 1;
@@ -4398,11 +4399,23 @@
       for (i = 0; i < lc; i++) {
         var la, lb;
         if (k2 === 1) {
-          // 首轮败者组：胜者组第 1 轮的两个败者
-          la = '胜者组第 1 轮 第 ' + (2 * i + 1) + ' 场败者';
-          lb = '胜者组第 1 轮 第 ' + (2 * i + 2) + ' 场败者';
-          wbLoseTo['1|' + (2 * i)] = lname + ' 第 ' + (i + 1) + ' 场';
-          wbLoseTo['1|' + (2 * i + 1)] = lname + ' 第 ' + (i + 1) + ' 场';
+          // 首轮败者组：胜者组第 1 轮掉下来的败者
+          //   · 不互换：相邻两场（同半区）配对，与经典对阵图一致
+          //   · 半区互换：上半区第 i 场 × 下半区第 i 场（交叉落位）
+          if (crossOn) {
+            var wbR1n = Math.max(2, sizeDE / 2);              // 胜者组第 1 轮场数
+            var halfN = Math.floor(wbR1n / 2);
+            var ti = i, bi = halfN + i;
+            la = '胜者组第 1 轮 第 ' + (ti + 1) + ' 场败者';
+            lb = '胜者组第 1 轮 第 ' + (bi + 1) + ' 场败者';
+            wbLoseTo['1|' + ti] = lname + ' 第 ' + (i + 1) + ' 场';
+            wbLoseTo['1|' + bi] = lname + ' 第 ' + (i + 1) + ' 场';
+          } else {
+            la = '胜者组第 1 轮 第 ' + (2 * i + 1) + ' 场败者';
+            lb = '胜者组第 1 轮 第 ' + (2 * i + 2) + ' 场败者';
+            wbLoseTo['1|' + (2 * i)] = lname + ' 第 ' + (i + 1) + ' 场';
+            wbLoseTo['1|' + (2 * i + 1)] = lname + ' 第 ' + (i + 1) + ' 场';
+          }
         } else if (k2 % 2 === 0) {
           // 偶数轮：败者组上一轮胜者 vs 胜者组第 (k/2+1) 轮的败者
           var jj = k2 / 2;
@@ -4457,11 +4470,16 @@
         cd.loseTo = wbLoseTo[(ci + 1) + '|' + mi] || '淘汰';
       });
     });
+    // 败者组的去向要看下一轮是哪种轮次：
+    //   · 合并轮（下一轮是偶数轮：存活者 1:1 接胜者组掉下来的人）→ 第 i 场对应第 i 场
+    //   · 内部轮（下一轮是奇数轮：存活者两两配）→ 第 2j / 2j+1 场汇到第 j+1 场
+    // 以前一律按「两两合并」算，导致「败者组第 1 轮 第 2 场」的去向显示成第 1 场（错位）。
     lbCols.forEach(function (col, ci) {
+      var nextIsMerge = ((ci + 2) % 2 === 0);   // ci 从 0 开始；下一轮轮次 k2 = ci + 2
       col.cards.forEach(function (cd, mi) {
-        cd.winTo = (ci === lbCols.length - 1)
-          ? '总决赛 第 1 场'
-          : (lbCols[ci + 1].name + ' 第 ' + (Math.floor(mi / 2) + 1) + ' 场');
+        if (ci === lbCols.length - 1) { cd.winTo = '总决赛 第 1 场'; cd.loseTo = '淘汰'; return; }
+        var ni = nextIsMerge ? mi : Math.floor(mi / 2);
+        cd.winTo = lbCols[ci + 1].name + ' 第 ' + (ni + 1) + ' 场';
         cd.loseTo = '淘汰';
       });
     });

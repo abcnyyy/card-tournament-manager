@@ -285,74 +285,74 @@
       gfCount: 0,          // 已进行的总决赛场次
       gfFirst: null        // 总决赛首场胜者（用于判断是否加赛）
     };
-    if (opts.cross) {
-      st.cross = true;
-      st.halfOf = opts.halfOf || {};
-    }
+    st.halfOf = opts.halfOf || {};   // 半区映射总是保留（不互换时也用来画图 / 排查）
+    if (opts.cross) st.cross = true;
     return st;
   };
 
-  /* 选手属于哪个半区：0 上 / 1 下 / 2 未登记 */
+  /* 选手属于哪个半区：0 上 / 1 下 / 2 未登记
+     id 既可能是选手 id（字符串），也可能是对阵图骨架里的占位 token（对象，用 __k 作键） */
+  function halfKeyOf(id) {
+    if (id == null) return null;
+    if (typeof id === 'object') return (id.__k != null) ? '__k:' + id.__k : (id.id != null ? 'id:' + id.id : null);
+    return 'id:' + id;
+  }
   function halfOfId(de, id) {
-    var h = de && de.halfOf ? de.halfOf[id] : undefined;
-    return (h === 0 || h === 1) ? h : 2;
-  }
-
-  /* 稳定排序：0 半区在前、1 半区在中、未登记的在后 */
-  function orderByHalf(de, list) {
-    return list.slice().sort(function (a, b) {
-      var ha = halfOfId(de, a), hb = halfOfId(de, b);
-      return ha - hb;
-    });
-  }
-
-  /**
-   * 半区互换的败者组配对：列表按半区排好再「首尾配对」，
-   * 这样同一个半区的人不会在败者组里第一场就撞上（这正是互换想要的效果）。
-   * 奇数时多出来的人（只可能出现在退赛 / 人数不齐的边角情况）给一个轮空。
-   */
-  function crossPairsOfList(de, list) {
-    var pairs = [], byes = [];
-    var arr = orderByHalf(de, list);
-    if (arr.length % 2 === 1) {
-      var mid = Math.floor(arr.length / 2);
-      byes.push(arr[mid]);
-      arr.splice(mid, 1);
+    if (!de || !de.halfOf) return 2;
+    function pick(k) { var v = (k == null) ? undefined : de.halfOf[k]; return (v === 0 || v === 1) ? v : undefined; }
+    var h = pick(halfKeyOf(id));                       // '__k:12' / 'id:abc'
+    if (h !== undefined) return h;
+    if (id != null && typeof id === 'object') {         // 骨架里的 token
+      h = pick('__k:' + id.__k); if (h !== undefined) return h;
+      if (id.__k != null) { h = pick(id.__k); if (h !== undefined) return h; }
+      if (id.id != null) { h = pick(id.id); if (h !== undefined) return h; }
+      return 2;
     }
-    for (var k = 0; k < arr.length / 2; k++) pairs.push([arr[k], arr[arr.length - 1 - k]]);
+    h = pick(id);                                      // 老写法：直接用选手 id 当键
+    return (h === undefined) ? 2 : h;
+  }
+
+  /* 按半区分组（保持原有顺序）：上、下、未知 */
+  function splitByHalf(de, list) {
+    var top = [], bot = [], unk = [];
+    (list || []).forEach(function (id) {
+      var h = halfOfId(de, id);
+      (h === 0 ? top : h === 1 ? bot : unk).push(id);
+    });
+    return { top: top, bot: bot, unk: unk };
+  }
+
+  /* 相邻配对（不互换）：(0,1) (2,3) … 与真实双败「同半区先打」的顺序一致 */
+  function plainPairsOfList(list) {
+    var pairs = [], byes = [];
+    var arr = (list || []).slice();
+    if (arr.length % 2 === 1) {
+      byes.push(arr[arr.length - 1]);
+      arr.pop();
+    }
+    for (var k = 0; k + 1 < arr.length; k += 2) pairs.push([arr[k], arr[k + 1]]);
     return { pairs: pairs, byes: byes };
   }
 
-  /**
-   * 败者组配对（带互换）：新掉下来的败者优先配「另一个半区」的存活者，
-   * 剩下的再按半区首尾配对。人数不齐时多出来的两人一组，不会凭空造轮空。
-   */
-  function crossPairsSurviveDrop(de, survivors, dropped) {
+  /* 指定半区互配：上区第 i 个 × 下区第 i 个，剩下的相邻配 */
+  function crossPairsOfList(de, list) {
+    var g = splitByHalf(de, list);
+    var pairs = [];
+    var n = Math.min(g.top.length, g.bot.length), k;
+    for (k = 0; k < n; k++) pairs.push([g.top[k], g.bot[k]]);
+    var rest = plainPairsOfList(g.top.slice(n).concat(g.bot.slice(n)).concat(g.unk));
+    return { pairs: pairs.concat(rest.pairs), byes: rest.byes };
+  }
+
+  /* 不互换的合并轮：存活者第 i 个 × 新败者第 i 个（与对阵图的「第 X 场对第 X 场」一致） */
+  function plainPairsSurviveDrop(survivors, dropped) {
     var pairs = [], byes = [];
-    var sv = survivors.slice(), dp = dropped.slice();
-    var used = {};
-    if (dp.length && sv.length) {
-      for (var d = 0; d < dp.length && sv.length; d++) {
-        var want = halfOfId(de, dp[d]);
-        var pick = -1, fallback = -1;
-        for (var s = 0; s < sv.length; s++) {
-          if (used[s]) continue;
-          if (fallback < 0) fallback = s;
-          if (want === 2 || halfOfId(de, sv[s]) !== want) { pick = s; break; }
-        }
-        if (pick < 0) pick = fallback;
-        if (pick < 0) break;
-        used[pick] = 1;
-        pairs.push([sv[pick], dp[d]]);
-      }
-      var leftSv = [];
-      for (var s2 = 0; s2 < sv.length; s2++) if (!used[s2]) leftSv.push(sv[s2]);
-      sv = leftSv;
-      dp = dp.slice(pairs.length);
-    }
-    var rest = crossPairsOfList(de, sv.concat(dp));
+    var sv = (survivors || []).slice(), dp = (dropped || []).slice();
+    var n = Math.min(sv.length, dp.length), k;
+    for (k = 0; k < n; k++) pairs.push([sv[k], dp[k]]);
+    var rest = plainPairsOfList(sv.slice(n).concat(dp.slice(n)));
     return { pairs: pairs.concat(rest.pairs), byes: byes.concat(rest.byes) };
-  };
+  }
 
   /**
    * 双败淘汰：生成下一轮的配对
@@ -415,71 +415,35 @@
 
     // ---- 败者组：老成员 + 新注入的胜者组败者 ----
     // ★ 标准双败的「波浪」是固定的：
-    //     · 合并轮（l 个存活者 + 至少 l 个刚落下来的败者）→ 存活者 1:1 接新败者，
+    //     · 合并轮（存活者 l 个 + 至少 l 个刚落下来的败者）→ 存活者 1:1 接新败者，
     //       每次只吃 l 个（按掉落先后），多出来的留到下一轮；
     //     · 内部轮（没有新败者）→ 存活者两两配，人数减半；
     //     · 只剩 0/1 个存活者时（败者组决赛那种）→ 把待注入的败者也拉进来配一场。
-    //   以前是「pending 数量不等于 l 就不合并、全留着」，会让胜者组决赛的败者
-    //   提前一轮掉进来多打一场（真实双败里他只需要打「败者组决赛」这一场）。
+    //   「不互换」= 相邻/同位配对（同半区先打，和经典双败对阵图完全一致）；
+    //   「半区互换」= 上区第 i 个对下区第 i 个（跨半区先打）。
     var lCnt = de.l.length, pCnt = de.pending.length;
-    var lbPairs = [], lbByes = [];
-
-    function interleave(a, b) {     // 老成员正序、新败者逆序，首尾配对
-      var arr = [], maxLen = Math.max(a.length, b.length), k;
-      for (k = 0; k < maxLen; k++) {
-        if (k < a.length) arr.push(a[k]);
-        if (k < b.length) arr.push(b[b.length - 1 - k]);
-      }
-      if (arr.length % 2 === 1) { lbByes.push(arr[arr.length - 1]); arr.splice(arr.length - 1, 1); }
-      var h = arr.length / 2;
-      for (k = 0; k < h; k++) {
-        var x = arr[k], y = arr[arr.length - 1 - k];
-        if (x && y) lbPairs.push([x, y]);
-        else if (x) lbByes.push(x);
-        else if (y) lbByes.push(y);
-      }
-    }
-    function fold(list) {           // 单批人内部配对
-      var arr = list.slice();
-      if (arr.length % 2 === 1) {
-        var mid = Math.floor(arr.length / 2);
-        lbByes.push(arr[mid]);
-        arr.splice(mid, 1);
-      }
-      for (var k = 0; k < arr.length / 2; k++) lbPairs.push([arr[k], arr[arr.length - 1 - k]]);
-    }
+    var lbPairs = [], lbByes = [], lbRes;
 
     if (lCnt >= 2 && pCnt >= lCnt) {
       // 合并轮：只吃 lCnt 个新败者，剩下的继续待注入
       var drops = de.pending.slice(0, lCnt);
-      if (de.cross) {
-        var cp = crossPairsSurviveDrop(de, de.l, drops);
-        lbPairs = cp.pairs; lbByes = cp.byes;
-      } else {
-        interleave(de.l, drops);
-      }
+      lbRes = plainPairsSurviveDrop(de.l, drops);
     } else if (lCnt >= 2) {
       // 内部轮（也可能 pending 不够，先让存活者自己打）
-      if (de.cross) {
-        var ci = crossPairsOfList(de, de.l);
-        lbPairs = ci.pairs; lbByes = ci.byes;
-      } else {
-        fold(de.l);
-      }
+      lbRes = plainPairsOfList(de.l);
     } else {
       // 存活者 0~1 人：把待注入的败者并进来（败者组决赛）
       var all = de.l.concat(de.pending);
       if (all.length >= 2) {
-        if (de.cross) {
-          var cf = crossPairsOfList(de, all);
-          lbPairs = cf.pairs; lbByes = cf.byes;
-        } else {
-          fold(all);
-        }
-      } else if (all.length === 1) {
-        lbByes.push(all[0]);
+        // ★ 半区互换只作用在「败者组第一轮」的落位：上区的人先去对下区的人，
+        //   之后就按标准双败的相邻配对推进（这正是真实赛事里「交叉落位」的做法，
+        //   也保证结构和对阵图与实际生成完全一致）。
+        lbRes = (de.cross && lCnt === 0) ? crossPairsOfList(de, all) : plainPairsOfList(all);
+      } else {
+        lbRes = { pairs: [], byes: all.length === 1 ? [all[0]] : [] };
       }
     }
+    lbPairs = lbRes.pairs; lbByes = lbRes.byes;
     lbPairs.forEach(function (p) { res.pairsL.push(p); });
     res.byesL = res.byesL.concat(lbByes);
 
